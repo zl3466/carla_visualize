@@ -1,0 +1,232 @@
+import glob
+import os
+import sys
+import numpy as np
+import cv2
+
+try:
+    sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
+        sys.version_info.major,
+        sys.version_info.minor,
+        'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+except IndexError:
+    pass
+
+import carla
+import random
+import time
+from queue import Queue, Empty
+import copy
+import logging
+import argparse
+# from mayavi import mlab # for visualizing lidar point cloud
+
+IM_WIDTH = 256
+IM_HEIGHT = 256
+
+def process_img(image):
+    i = np.array(image.raw_data)
+    # print(dir(image))
+    i = i.reshape((IM_HEIGHT, IM_WIDTH, 4))
+    i2 = i[:, :, :3]
+    return i2
+
+
+def lidar_to_bev(lidar, min_x=-24, max_x=24, min_y=-16, max_y=16, pixels_per_meter=4, hist_max_per_pixel=10):
+    xbins = np.linspace(min_x, max_x + 1, (max_x - min_x) * pixels_per_meter + 1)
+    ybins = np.linspace(min_y, max_y + 1, (max_y - min_y) * pixels_per_meter + 1)
+    # Compute histogram of x and y coordinates of points.
+    hist = np.histogramdd(lidar[..., :2], bins=(xbins, ybins))[0]
+    # Clip histogram
+    hist[hist > hist_max_per_pixel] = hist_max_per_pixel
+    # Normalize histogram by the maximum number of points in a bin we care about.
+    overhead_splat = hist / hist_max_per_pixel * 255.
+    # Return splat in X x Y orientation, with X parallel to car axis, Y perp, both parallel to ground.
+    return overhead_splat[::-1, :]
+
+
+def merge_visualize_data(rgb, lidar):
+    canvas = np.array(rgb[..., ::-1])
+
+    if lidar is not None:
+        lidar_viz = lidar_to_bev(lidar).astype(np.uint8)
+        lidar_viz = cv2.cvtColor(lidar_viz, cv2.COLOR_GRAY2RGB)
+        canvas = np.concatenate([canvas, cv2.resize(lidar_viz.astype(np.uint8), (canvas.shape[0], canvas.shape[0]))],
+                                axis=1)
+    return canvas
+
+
+def process_lidar(data):
+    i = np.frombuffer(data.raw_data, dtype=np.dtype('f4'))
+    i = copy.deepcopy(i)
+    i = np.reshape(i, (int(i.shape[0] / 4), 4))
+    return i
+
+
+def recursive_listen(sensor_data, sensor_queue, sensor_name):
+    sensor_queue.put((sensor_data.frame, sensor_name, sensor_data))
+
+
+def main():
+    argparser = argparse.ArgumentParser(
+        description=__doc__)
+    argparser.add_argument(
+        '--host',
+        metavar='H',
+        default='127.0.0.1',
+        help='IP of the host server (default: 127.0.0.1)')
+    argparser.add_argument(
+        '-p', '--port',
+        metavar='P',
+        default=2000,
+        type=int,
+        help='TCP port to listen to (default: 2000)')
+    argparser.add_argument(
+        '--tm_port',
+        default=8000,
+        type=int,
+        help='Traffic Manager Port (default: 8000)')
+    argparser.add_argument(
+        '-t', '--town',
+        metavar='T',
+        default=5,
+        type=int,
+        help='Town map')
+    argparser.add_argument(
+        '-v', '--num-vehicle',
+        metavar='V',
+        default=500,
+        type=int,
+        help='Number of Vehicles')
+    args = argparser.parse_args()
+
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
+
+    client = carla.Client(args.host, args.port)
+    client.set_timeout(5.0)
+    world = client.get_world()
+
+    try:
+        actor_list = []
+        sensor_list = []
+        sensor_queue = Queue()
+
+        original_settings = world.get_settings()
+        settings = world.get_settings()
+
+        # We set CARLA syncronous mode
+        settings.fixed_delta_seconds = 0.05
+        settings.synchronous_mode = True
+        world.apply_settings(settings)
+        spectator = world.get_spectator()
+
+        blueprint_library = world.get_blueprint_library()
+        bp = blueprint_library.filter("model3")[0]
+        # print(bp)
+
+        # spawn car
+        spawn_point = random.choice(world.get_map().get_spawn_points())
+        vehicle = world.spawn_actor(bp, spawn_point)
+
+        vehicle.apply_control(carla.VehicleControl(throttle=1, steer=0))
+        actor_list.append(vehicle)
+
+        # ------------------------------------------------------------------------
+        # spawn sensors
+
+        # cameras
+        cam_bp = blueprint_library.find("sensor.camera.rgb")
+        cam_bp.set_attribute("image_size_x", f"{IM_WIDTH}")
+        cam_bp.set_attribute("image_size_y", f"{IM_HEIGHT}")
+        cam_bp.set_attribute("fov", "110")
+
+        # camera locations
+        cam_spawn_point1 = carla.Transform(carla.Location(z=10), carla.Rotation(pitch=270, yaw=0, roll=0))
+        cam_spawn_point2 = carla.Transform(carla.Location(x=-3, z=3), carla.Rotation(pitch=0, yaw=0, roll=0))
+
+        # spawn cameras
+        sensor_cam1 = world.spawn_actor(cam_bp, cam_spawn_point1, attach_to=vehicle)
+        sensor_cam2 = world.spawn_actor(cam_bp, cam_spawn_point2, attach_to=vehicle)
+
+        # camera listen() & append sensor_list
+        sensor_cam1.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_top"))
+        sensor_list.append(sensor_cam1)
+        sensor_cam2.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_back"))
+        sensor_list.append(sensor_cam2)
+
+        # lidar
+        lidar_bp = blueprint_library.find("sensor.lidar.ray_cast")
+        lidar_bp.set_attribute("channels", "64")
+        lidar_bp.set_attribute("points_per_second", "200000")
+        lidar_bp.set_attribute("range", "32")
+        # lidar_bp.set_attribute("rotation_frequency", str(int(1 / settings.fixed_delta_seconds)))
+        lidar_bp.set_attribute("rotation_frequency", str(int(1 / 0.05)))
+
+        # lidar location
+        lidar_spawn_point1 = carla.Transform(carla.Location(z=2))
+
+        # spawn lidar
+        lidar_01 = world.spawn_actor(lidar_bp, lidar_spawn_point1, attach_to=vehicle)
+
+        # lidar listen() & append sensor_list
+        lidar_01.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_01"))
+        sensor_list.append(lidar_01)
+
+        # start recording
+        log_name = "trial2.log"
+        client.start_recorder(log_name, True)
+
+        while True:
+            world.tick()
+            world_frame = world.get_snapshot().frame
+            print("\nWorld's frame: %d" % world_frame)
+
+            try:
+                rgbs = []
+                lidars = []
+
+                for i in range(0, len(sensor_list)):
+                    s_frame, s_name, s_data = sensor_queue.get(True, 1.0)
+                    sensor_type = s_name.split('_')[0]
+                    if sensor_type == "rgb":
+                        rgbs.append(process_img(s_data))
+                    elif sensor_type == "lidar":
+                        lidars.append(process_lidar(s_data))
+
+                rgb = np.concatenate(rgbs, axis=1)[..., :3]
+                lidar = np.concatenate(lidars, axis=1)[..., :3]
+                cv2.imshow("vizs", merge_visualize_data(rgb, lidar))
+                cv2.waitKey(100)
+
+                print(world.get_actors().filter("sensor.*"))
+
+                # rgb_file_name = "/home/zl3466/carla/Unreal/CarlaUE4/Saved/multi_sensor_log/rgb/" + str(world_frame) + ".png"
+                # cv2.imwrite(rgb_file_name, rgb[..., ::-1])
+                # lidar_file_name = "/home/zl3466/carla/Unreal/CarlaUE4/Saved/multi_sensor_log/lidar/" + str(world_frame) + ".npy"
+                # np.save(lidar_file_name, lidar)
+
+            except Empty:
+                print("inappropriate sensor data")
+
+        tm = client.get_trafficmanager(args.tm_port)
+        tm.set_synchronous_mode(True)
+
+
+
+    finally:
+        # client.stop_recorder()
+        world.apply_settings(original_settings)
+        for actor in actor_list:
+            actor.destroy()
+        for sensor in sensor_list:
+            sensor.destroy()
+        print("all done")
+
+if __name__ == '__main__':
+
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print('\ndone.')
