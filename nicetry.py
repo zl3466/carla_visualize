@@ -119,6 +119,8 @@ def main():
         settings.synchronous_mode = True
         world.apply_settings(settings)
         spectator = world.get_spectator()
+        tm = client.get_trafficmanager(args.tm_port)
+        tm.set_synchronous_mode(True)
 
         blueprint_library = world.get_blueprint_library()
         bp = blueprint_library.filter("model3")[0]
@@ -172,9 +174,9 @@ def main():
         lidar_01.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_01"))
         sensor_list.append(lidar_01)
 
-        # start recording
-        log_name = "trial2.log"
-        client.start_recorder(log_name, True)
+        # # start recording
+        # log_name = "trial2.log"
+        # client.start_recorder(log_name, True)
 
         while True:
             world.tick()
@@ -198,7 +200,7 @@ def main():
                 cv2.imshow("vizs", merge_visualize_data(rgb, lidar))
                 cv2.waitKey(100)
 
-                print(world.get_actors().filter("sensor.*"))
+                # print(world.get_actors().filter("sensor.*"))
 
                 # rgb_file_name = "/home/zl3466/carla/Unreal/CarlaUE4/Saved/multi_sensor_log/rgb/" + str(world_frame) + ".png"
                 # cv2.imwrite(rgb_file_name, rgb[..., ::-1])
@@ -207,11 +209,6 @@ def main():
 
             except Empty:
                 print("inappropriate sensor data")
-
-        tm = client.get_trafficmanager(args.tm_port)
-        tm.set_synchronous_mode(True)
-
-
 
     finally:
         # client.stop_recorder()
