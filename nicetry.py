@@ -13,16 +13,41 @@ except IndexError:
     pass
 
 import carla
-import random
 import time
+import random
 from queue import Queue, Empty
 import copy
 import logging
 import argparse
-# from mayavi import mlab # for visualizing lidar point cloud
+import open3d as o3d
 
 IM_WIDTH = 256
 IM_HEIGHT = 256
+LABEL_COLORS = np.array([
+    (0, 0, 0),  # None
+    (70, 70, 70),  # Building
+    (100, 40, 40),  # Fences
+    (55, 90, 80),  # Other
+    (255, 255, 0),  # Pedestrian
+    (153, 153, 153),  # Pole
+    (157, 234, 50),  # RoadLines
+    (0, 0, 255),  # Road
+    (255, 255, 255),  # Sidewalk
+    (0, 155, 0),  # Vegetation
+    (255, 0, 0),  # Vehicle
+    (102, 102, 156),  # Wall
+    (220, 220, 0),  # TrafficSign
+    (70, 130, 180),  # Sky
+    (0, 0, 0),  # Ground
+    (150, 100, 100),  # Bridge
+    (230, 150, 140),  # RailTrack
+    (180, 165, 180),  # GuardRail
+    (250, 170, 30),  # TrafficLight
+    (110, 190, 160),  # Static
+    (170, 120, 50),  # Dynamic
+    (45, 60, 150),  # Water
+    (145, 170, 100),  # Terrain
+]) / 255.0
 
 def process_img(image):
     i = np.array(image.raw_data)
@@ -30,6 +55,51 @@ def process_img(image):
     i = i.reshape((IM_HEIGHT, IM_WIDTH, 4))
     i2 = i[:, :, :3]
     return i2
+
+
+def gen_points(point_cloud, world, lidar_id, vehicle_id, ego_pose, bool):
+    data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype([
+        ('x', np.float32), ('y', np.float32), ('z', np.float32),
+        ('CosAngle', np.float32), ('ObjIdx', np.uint32), ('ObjTag', np.uint32)]))
+    non_ego = np.array(data['ObjIdx']) != vehicle_id
+    points = np.array([data['x'], data['y'], data['z']]).T
+    points = points[non_ego, :]
+
+    # Add noise (2 centimeters)
+    points += np.random.uniform(-0.02, 0.02, size=points.shape)
+    pc = points.reshape(-1, 3)
+
+    labels = np.array(data['ObjTag'])[non_ego]
+    actor_list = world.get_actors()
+    lidar_loc = actor_list.find(lidar_id).get_transform()
+    to_world = np.array(lidar_loc.get_matrix())
+
+    if not bool:
+        to_ego = np.linalg.inv(ego_pose)
+        to_ego = np.matmul(to_ego, to_world)
+    else:
+        to_ego = np.linalg.inv(to_world)
+        to_ego = np.matmul(to_ego, to_world)
+
+    pc = np.dot(to_ego[:3, :3], pc.T).T + to_ego[:3, 3]
+    point_list = o3d.geometry.PointCloud()
+    point_list.points = o3d.utility.Vector3dVector(pc)
+    point_list.colors = o3d.utility.Vector3dVector(LABEL_COLORS[labels])
+    if bool:
+        return to_world, point_list
+    return ego_pose, point_list
+
+
+# Semantic lidar
+def generate_lidar_bp(world, delta):
+    lidar_bp = world.get_blueprint_library().find('sensor.lidar.ray_cast_semantic')
+    lidar_bp.set_attribute('upper_fov', str(2))
+    lidar_bp.set_attribute('lower_fov', str(-25))
+    lidar_bp.set_attribute('channels', str(64.0))
+    lidar_bp.set_attribute('range', str(50))
+    lidar_bp.set_attribute('rotation_frequency', str(1.0 / delta))
+    lidar_bp.set_attribute('points_per_second', str(200000))
+    return lidar_bp
 
 
 def lidar_to_bev(lidar, min_x=-24, max_x=24, min_y=-16, max_y=16, pixels_per_meter=4, hist_max_per_pixel=10):
@@ -110,11 +180,12 @@ def main():
         actor_list = []
         sensor_list = []
         sensor_queue = Queue()
+        lidar_queue = Queue()
 
         original_settings = world.get_settings()
         settings = world.get_settings()
 
-        # We set CARLA syncronous mode
+        # We set CARLA synchronous mode
         settings.fixed_delta_seconds = 0.05
         settings.synchronous_mode = True
         world.apply_settings(settings)
@@ -135,8 +206,7 @@ def main():
 
         # ------------------------------------------------------------------------
         # spawn sensors
-
-        # cameras
+        # --------------------------------------------RGB Cameras--------------------------------------------------
         cam_bp = blueprint_library.find("sensor.camera.rgb")
         cam_bp.set_attribute("image_size_x", f"{IM_WIDTH}")
         cam_bp.set_attribute("image_size_y", f"{IM_HEIGHT}")
@@ -156,7 +226,7 @@ def main():
         sensor_cam2.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_back"))
         sensor_list.append(sensor_cam2)
 
-        # lidar
+        # -----------------------------------------------lidar-------------------------------------------------------
         lidar_bp = blueprint_library.find("sensor.lidar.ray_cast")
         lidar_bp.set_attribute("channels", "64")
         lidar_bp.set_attribute("points_per_second", "200000")
@@ -174,16 +244,68 @@ def main():
         lidar_01.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_01"))
         sensor_list.append(lidar_01)
 
-        # # start recording
+        # -----------------------------------semantic lidar for 3d mapping---------------------------------------------
+        NUM_SENSORS = 5
+        views = np.arange(NUM_SENSORS)
+        s_lidars = []
+        for i in range(NUM_SENSORS):
+            if i == 0:  # Onboard sensor
+                offsets = [-0.5, 0.0, 1.8]
+            else:
+                offsets = np.random.uniform([-20, -20, 1], [20, 20, 5], [3, ])
+
+            lidar_bp = generate_lidar_bp(args, world, blueprint_library, 0.05)
+            # # Location of lidar, fixed to vehicle
+            lidar_transform = carla.Transform(carla.Location(x=offsets[0], y=offsets[1], z=offsets[2]))
+            lidar = world.spawn_actor(lidar_bp, lidar_transform, attach_to=vehicle)
+
+            # Add callback
+            s_lidars.append(lidar)
+            s_lidars[i].listen(lambda data, view=views[i]: lidar_queue.put([data, view]))
+
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(
+            window_name='Segmented Scene',
+            width=960,
+            height=540,
+            left=480,
+            top=270)
+        vis.get_render_option().background_color = [0.0, 0.0, 0.0]
+        vis.get_render_option().point_size = 3
+
+        # ----------------------------------------------Recording--------------------------------------------------
         # log_name = "trial2.log"
         # client.start_recorder(log_name, True)
 
+        # -----------------------------------Run Visualization---------------------------------------------
+        frame = 0
         while True:
             world.tick()
             world_frame = world.get_snapshot().frame
             print("\nWorld's frame: %d" % world_frame)
+            point_list = o3d.geometry.PointCloud()
 
             try:
+                ego_pose = None
+                indicator = True
+                for _ in range(len(s_lidars)):
+                    data, view = lidar_queue.get()
+                    ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
+                                                        indicator)
+                    point_list += point_list_2
+                    indicator = False
+                if frame == 0:
+                    geometry = o3d.geometry.PointCloud(point_list)
+                    vis.add_geometry(geometry)
+
+                geometry.points = point_list.points
+                geometry.colors = point_list.colors
+                vis.update_geometry(geometry)
+                for i in range(1):
+                    vis.poll_events()
+                    vis.update_renderer()
+                    time.sleep(0.005)
+
                 rgbs = []
                 lidars = []
 
@@ -210,6 +332,8 @@ def main():
             except Empty:
                 print("inappropriate sensor data")
 
+            frame += 1
+
     finally:
         # client.stop_recorder()
         world.apply_settings(original_settings)
@@ -217,6 +341,8 @@ def main():
             actor.destroy()
         for sensor in sensor_list:
             sensor.destroy()
+        for s_lidar in s_lidars:
+            s_lidar.destroy()
         print("all done")
 
 if __name__ == '__main__':

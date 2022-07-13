@@ -1,15 +1,7 @@
-#!/usr/bin/env python
-
-# Copyright (c) 2019 Computer Vision Center (CVC) at the Universitat Autonoma de
-# Barcelona (UAB).
-#
-# This work is licensed under the terms of the MIT license.
-# For a copy, see <https://opensource.org/licenses/MIT>.
 import glob
 import os
 import sys
 import time
-import numpy as np
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -19,13 +11,12 @@ try:
 except IndexError:
     pass
 
-import carla
-import argparse
-import cv2
-from queue import Queue, Empty
-import copy
-import open3d as o3d
-from CarlaUtils import *
+
+from nicetry import *
+IM_WIDTH = 256
+IM_HEIGHT = 256
+
+
 
 def main():
     argparser = argparse.ArgumentParser(
@@ -124,7 +115,6 @@ def main():
         blueprint_library = world.get_blueprint_library()
 
         # ------------------------------------------------------------------------
-        # spawn sensors
         # wait for actors to spawn properly
         if args.typical_sensors:
             while len(world.get_actors().filter('vehicle.*')) == 0:
@@ -135,7 +125,9 @@ def main():
             vehicle = world.get_actor(args.target_vehicle)
             actor_list.append(vehicle)
 
-            # cameras
+            # ------------------------------------------------------------------------
+            # spawn sensors
+            # --------------------------------------------RGB Cameras--------------------------------------------------
             cam_bp = blueprint_library.find("sensor.camera.rgb")
             cam_bp.set_attribute("image_size_x", f"{IM_WIDTH}")
             cam_bp.set_attribute("image_size_y", f"{IM_HEIGHT}")
@@ -155,7 +147,7 @@ def main():
             sensor_cam2.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_back"))
             sensor_list.append(sensor_cam2)
 
-            # lidar
+            # -----------------------------------------------lidar-------------------------------------------------------
             lidar_bp = blueprint_library.find("sensor.lidar.ray_cast")
             lidar_bp.set_attribute("channels", "64")
             lidar_bp.set_attribute("points_per_second", "200000")
@@ -173,7 +165,7 @@ def main():
             lidar_01.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_01"))
             sensor_list.append(lidar_01)
 
-            # semantic lidar for 3d mapping
+            # -----------------------------------semantic lidar for 3d mapping-----------------------------------------
             NUM_SENSORS = 5
             views = np.arange(NUM_SENSORS)
             s_lidars = []
@@ -183,7 +175,7 @@ def main():
                 else:
                     offsets = np.random.uniform([-20, -20, 1], [20, 20, 5], [3, ])
 
-                lidar_bp = generate_lidar_bp(args, world, blueprint_library, 0.05)
+                lidar_bp = generate_lidar_bp(world, 0.05)
                 # # Location of lidar, fixed to vehicle
                 lidar_transform = carla.Transform(carla.Location(x=offsets[0], y=offsets[1], z=offsets[2]))
                 lidar = world.spawn_actor(lidar_bp, lidar_transform, attach_to=vehicle)
@@ -192,7 +184,6 @@ def main():
                 s_lidars.append(lidar)
                 s_lidars[i].listen(lambda data, view=views[i]: lidar_queue.put([data, view]))
 
-            print('yesyesyesyesyes')
             vis = o3d.visualization.Visualizer()
             vis.create_window(
                 window_name='Segmented Scene',
@@ -203,14 +194,13 @@ def main():
             vis.get_render_option().background_color = [0.0, 0.0, 0.0]
             vis.get_render_option().point_size = 3
 
+            # -----------------------------------Run Visualization---------------------------------------------
             frame = 0
-
             while True:
                 spectator.set_transform(sensor_cam2.get_transform())
                 world_snapshot = world.tick()
                 world_frame = world.get_snapshot().frame
                 print("\nWorld's frame: %d" % world_frame)
-                # print(world.get_actors().filter('vehicle.*'))
                 point_list = o3d.geometry.PointCloud()
 
                 try:
@@ -218,7 +208,8 @@ def main():
                     indicator = True
                     for _ in range(len(s_lidars)):
                         data, view = lidar_queue.get()
-                        ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose, indicator)
+                        ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
+                                                            indicator)
                         point_list += point_list_2
                         indicator = False
                     if frame == 0:
@@ -263,11 +254,6 @@ def main():
 
         # --------------
 
-        # if ego_vehicle is not None:
-        #     if ego_cam is not None:
-        #         ego_cam.stop()
-        #         ego_cam.destroy()
-        #     ego_vehicle.destroy()
         world.apply_settings(original_settings)
         for actor in actor_list:
             actor.destroy()
@@ -276,117 +262,6 @@ def main():
         for s_lidar in s_lidars:
             s_lidar.destroy()
         print('\nNothing to be done.')
-
-
-IM_WIDTH = 256
-IM_HEIGHT = 256
-
-LABEL_COLORS = np.array([
-    (0, 0, 0),  # None
-    (70, 70, 70),  # Building
-    (100, 40, 40),  # Fences
-    (55, 90, 80),  # Other
-    (255, 255, 0),  # Pedestrian
-    (153, 153, 153),  # Pole
-    (157, 234, 50),  # RoadLines
-    (0, 0, 255),  # Road
-    (255, 255, 255),  # Sidewalk
-    (0, 155, 0),  # Vegetation
-    (255, 0, 0),  # Vehicle
-    (102, 102, 156),  # Wall
-    (220, 220, 0),  # TrafficSign
-    (70, 130, 180),  # Sky
-    (0, 0, 0),  # Ground
-    (150, 100, 100),  # Bridge
-    (230, 150, 140),  # RailTrack
-    (180, 165, 180),  # GuardRail
-    (250, 170, 30),  # TrafficLight
-    (110, 190, 160),  # Static
-    (170, 120, 50),  # Dynamic
-    (45, 60, 150),  # Water
-    (145, 170, 100),  # Terrain
-]) / 255.0
-
-
-def gen_points(point_cloud, world, lidar_id, vehicle_id, ego_pose, bool):
-    data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype([
-        ('x', np.float32), ('y', np.float32), ('z', np.float32),
-        ('CosAngle', np.float32), ('ObjIdx', np.uint32), ('ObjTag', np.uint32)]))
-    non_ego = np.array(data['ObjIdx']) != vehicle_id
-    points = np.array([data['x'], data['y'], data['z']]).T
-    points = points[non_ego, :]
-
-    # Add noise (2 centimeters)
-    points += np.random.uniform(-0.02, 0.02, size=points.shape)
-    pc = points.reshape(-1, 3)
-
-    labels = np.array(data['ObjTag'])[non_ego]
-    actor_list = world.get_actors()
-    lidar_loc = actor_list.find(lidar_id).get_transform()
-    to_world = np.array(lidar_loc.get_matrix())
-
-    # TODO: to_ego 怎么计算
-    if not bool:
-        to_ego = np.linalg.inv(ego_pose)
-        to_ego = np.matmul(to_ego, to_world)
-    else:
-        to_ego = np.linalg.inv(to_world)
-        to_ego = np.matmul(to_ego, to_world)
-
-    pc = np.dot(to_ego[:3, :3], pc.T).T + to_ego[:3, 3]
-    point_list = o3d.geometry.PointCloud()
-    point_list.points = o3d.utility.Vector3dVector(pc)
-    point_list.colors = o3d.utility.Vector3dVector(LABEL_COLORS[labels])
-    if bool:
-        return to_world, point_list
-    return ego_pose, point_list
-
-
-
-def process_img(image):
-    i = np.array(image.raw_data)
-    # print(dir(image))
-    i = i.reshape((IM_HEIGHT, IM_WIDTH, 4))
-    i2 = i[:, :, :3]
-    # cv2.imshow('', i2)
-    # cv2.waitKey(1)
-    return i2
-
-
-def lidar_to_bev(lidar, min_x=-24, max_x=24, min_y=-16, max_y=16, pixels_per_meter=4, hist_max_per_pixel=10):
-    xbins = np.linspace(min_x, max_x + 1, (max_x - min_x) * pixels_per_meter + 1)
-    ybins = np.linspace(min_y, max_y + 1, (max_y - min_y) * pixels_per_meter + 1)
-    # Compute histogram of x and y coordinates of points.
-    hist = np.histogramdd(lidar[..., :2], bins=(xbins, ybins))[0]
-    # Clip histogram
-    hist[hist > hist_max_per_pixel] = hist_max_per_pixel
-    # Normalize histogram by the maximum number of points in a bin we care about.
-    overhead_splat = hist / hist_max_per_pixel * 255.
-    # Return splat in X x Y orientation, with X parallel to car axis, Y perp, both parallel to ground.
-    return overhead_splat[::-1, :]
-
-
-def merge_visualize_data(rgb, lidar):
-    canvas = np.array(rgb[..., ::-1])
-
-    if lidar is not None:
-        lidar_viz = lidar_to_bev(lidar).astype(np.uint8)
-        lidar_viz = cv2.cvtColor(lidar_viz, cv2.COLOR_GRAY2RGB)
-        canvas = np.concatenate([canvas, cv2.resize(lidar_viz.astype(np.uint8), (canvas.shape[0], canvas.shape[0]))],
-                                axis=1)
-    return canvas
-
-
-def process_lidar(data):
-    i = np.frombuffer(data.raw_data, dtype=np.dtype('f4'))
-    i = copy.deepcopy(i)
-    i = np.reshape(i, (int(i.shape[0] / 4), 4))
-    return i
-
-
-def recursive_listen(sensor_data, sensor_queue, sensor_name):
-    sensor_queue.put((sensor_data.frame, sensor_name, sensor_data))
-
 
 
 if __name__ == '__main__':
