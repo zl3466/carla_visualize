@@ -224,6 +224,7 @@ def main():
                     ego_pose = None
                     indicator = True
                     for _ in range(len(s_lidars)):
+                        data, view = lidar_queue.get()
                         """ maybe not needed
                         # record time
                         timestamp = world.get_snapshot().timestamp
@@ -231,7 +232,6 @@ def main():
                         time_file.write(str(frame) + ", " + str(timestamp) + "\n")
                         time_file.close()
                         """
-                        data, view = lidar_queue.get()
                         #TODO：
                         #save_raw_data(data,world,lidar_id,vehicle-id,save_dir,frame,view)
                         #TODO: 看看可不可以合并到一起
