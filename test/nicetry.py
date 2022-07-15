@@ -49,6 +49,7 @@ LABEL_COLORS = np.array([
     (145, 170, 100),  # Terrain
 ]) / 255.0
 
+
 def process_img(image):
     i = np.array(image.raw_data)
     # print(dir(image))
@@ -57,7 +58,7 @@ def process_img(image):
     return i2
 
 
-def gen_points(point_cloud, world, lidar_id, vehicle_id, ego_pose, bool, frame,save_dir, view=0):
+def gen_points(point_cloud, world, lidar_id, vehicle_id, ego_pose, bool, frame, save_dir, view=0):
     data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype([
         ('x', np.float32), ('y', np.float32), ('z', np.float32),
         ('CosAngle', np.float32), ('ObjIdx', np.uint32), ('ObjTag', np.uint32)]))
@@ -88,21 +89,26 @@ def gen_points(point_cloud, world, lidar_id, vehicle_id, ego_pose, bool, frame,s
 
     # -----------------------------------Save Raw Data---------------------------------------------
     instances = np.array(data['ObjIdx'])[non_ego]
+    # object index in raw data, non_ego is 1 if vehicle_id not much, else 0.
     np.save(save_dir + "/instances" + str(view) + "/" + str(frame), instances)
+    # object labels in raw data, non_ego is 1 if vehicle_id not much, else 0.
     np.save(save_dir + "/labels" + str(view) + "/" + str(frame), labels)
+    # x,y,z in raw data, added noise, if ego take all data, else ignore the index 0
     np.save(save_dir + "/velodyne" + str(view) + "/" + str(frame), points)
+    # lidar location
     np.save(save_dir + "/pose" + str(view) + "/" + str(frame), to_world)
     # extra calculated to save velocity (from Umi github CarlaUtils.py)
-    velocities=[]
+    velocities = []
     to_ego = np.array(lidar_loc.get_inverse_matrix())[:3, :3]
     tags = np.unique(np.array(data['ObjIdx']))
     for id in tags:
-        if id ==0: continue
-        actor=actor_list.find(int(id))
-        actor_vel=actor.get_velocity()
-        actor_vel=np.asarray([actor_vel.x,actor_vel.y,actor_vel.z])
-        vel=np.matmul(to_ego,actor_vel)
-        velocities.append([id,vel[0],vel[1],vel[2]])
+        if id == 0: continue
+        actor = actor_list.find(int(id))
+        actor_vel = actor.get_velocity()
+        actor_vel = np.asarray([actor_vel.x, actor_vel.y, actor_vel.z])
+        vel = np.matmul(to_ego, actor_vel)
+        velocities.append([id, vel[0], vel[1], vel[2]])
+    # velocity at x,y,z position
     np.save(save_dir + "/velocities" + str(view) + "/" + str(frame), velocities)
     if bool:
         return to_world, point_list
@@ -187,7 +193,7 @@ def main():
         default=500,
         type=int,
         help='Number of Vehicles')
-        # store dir
+    # store dir
     argparser.add_argument(
         '--save-dir',
         type=str,
@@ -323,7 +329,7 @@ def main():
                     time_file.close()
                     """
                     ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
-                                                        indicator,frame,args.save_dir,view=view)
+                                                        indicator, frame, args.save_dir, view=view)
                     point_list += point_list_2
                     indicator = False
                 if frame == 0:
@@ -376,6 +382,7 @@ def main():
         for s_lidar in s_lidars:
             s_lidar.destroy()
         print("all done")
+
 
 if __name__ == '__main__':
 
