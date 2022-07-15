@@ -187,6 +187,12 @@ def main():
         default=500,
         type=int,
         help='Number of Vehicles')
+        # store dir
+    argparser.add_argument(
+        '--save-dir',
+        type=str,
+        default="/home/allenzj/Carla_Data",
+        help='save directory for raw data')
     args = argparser.parse_args()
 
     logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
@@ -308,9 +314,16 @@ def main():
                 ego_pose = None
                 indicator = True
                 for _ in range(len(s_lidars)):
+                    """ maybe not needed
+                    # record time
+                    timestamp = world.get_snapshot().timestamp
+                    time_file = open(args.save_dir+ '/times' + str(view) + '.txt', 'a')
+                    time_file.write(str(frame) + ", " + str(timestamp) + "\n")
+                    time_file.close()
+                    """
                     data, view = lidar_queue.get()
                     ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
-                                                        indicator)
+                                                        indicator,frame,args.save_dir,view=view)
                     point_list += point_list_2
                     indicator = False
                 if frame == 0:
