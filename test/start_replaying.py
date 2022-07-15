@@ -224,6 +224,13 @@ def main():
                     ego_pose = None
                     indicator = True
                     for _ in range(len(s_lidars)):
+                        """ maybe not needed
+                        # record time
+                        timestamp = world.get_snapshot().timestamp
+                        time_file = open(args.save_dir+ '/times' + str(view) + '.txt', 'a')
+                        time_file.write(str(frame) + ", " + str(timestamp) + "\n")
+                        time_file.close()
+                        """
                         data, view = lidar_queue.get()
                         #TODO：
                         #save_raw_data(data,world,lidar_id,vehicle-id,save_dir,frame,view)
