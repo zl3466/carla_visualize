@@ -314,6 +314,7 @@ def main():
                 ego_pose = None
                 indicator = True
                 for _ in range(len(s_lidars)):
+                    data, view = lidar_queue.get()
                     """ maybe not needed
                     # record time
                     timestamp = world.get_snapshot().timestamp
@@ -321,7 +322,6 @@ def main():
                     time_file.write(str(frame) + ", " + str(timestamp) + "\n")
                     time_file.close()
                     """
-                    data, view = lidar_queue.get()
                     ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
                                                         indicator,frame,args.save_dir,view=view)
                     point_list += point_list_2
