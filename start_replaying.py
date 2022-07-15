@@ -129,17 +129,14 @@ def main():
             # spawn sensors
             # --------------------------------------------RGB Cameras--------------------------------------------------
             cam_bp = blueprint_library.find("sensor.camera.rgb")
-            cam_bp.set_attribute("image_size_x", f"{IM_WIDTH}")
-            cam_bp.set_attribute("image_size_y", f"{IM_HEIGHT}")
-            cam_bp.set_attribute("fov", "110")
 
-            # camera locations
+            # camera locations & rotations
             cam_spawn_point1 = carla.Transform(carla.Location(z=10), carla.Rotation(pitch=270, yaw=0, roll=0))
             cam_spawn_point2 = carla.Transform(carla.Location(x=-3, z=3), carla.Rotation(pitch=0, yaw=0, roll=0))
 
             # spawn cameras
-            sensor_cam1 = world.spawn_actor(cam_bp, cam_spawn_point1, attach_to=vehicle)
-            sensor_cam2 = world.spawn_actor(cam_bp, cam_spawn_point2, attach_to=vehicle)
+            sensor_cam1 = spawn_rgb_cam(world, cam_bp, IM_WIDTH, IM_HEIGHT, 110, cam_spawn_point1, vehicle)
+            sensor_cam2 = spawn_rgb_cam(world, cam_bp, IM_WIDTH, IM_HEIGHT, 110, cam_spawn_point2, vehicle)
 
             # camera listen() & append sensor_list
             sensor_cam1.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_top"))
@@ -149,17 +146,13 @@ def main():
 
             # -----------------------------------------------lidar-------------------------------------------------------
             lidar_bp = blueprint_library.find("sensor.lidar.ray_cast")
-            lidar_bp.set_attribute("channels", "64")
-            lidar_bp.set_attribute("points_per_second", "200000")
-            lidar_bp.set_attribute("range", "32")
-            lidar_bp.set_attribute("rotation_frequency", str(int(1 / settings.fixed_delta_seconds)))
-            # lidar_bp.set_attribute("rotation_frequency", str(int(1 / 0.05)))
 
-            # lidar location
+            # lidar location & rotation
             lidar_spawn_point1 = carla.Transform(carla.Location(z=2))
 
             # spawn lidar
-            lidar_01 = world.spawn_actor(lidar_bp, lidar_spawn_point1, attach_to=vehicle)
+            lidar_01 = spawn_lidar(world, lidar_bp, 64, 200000, 32, int(1 / settings.fixed_delta_seconds),
+                                   lidar_spawn_point1, vehicle)
 
             # lidar listen() & append sensor_list
             lidar_01.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_01"))

@@ -49,6 +49,32 @@ LABEL_COLORS = np.array([
     (145, 170, 100),  # Terrain
 ]) / 255.0
 
+
+def get_actor_blueprints(world, filter, generation):
+    bps = world.get_blueprint_library().filter(filter)
+
+    if generation.lower() == "all":
+        return bps
+
+    # If the filter returns only one bp, we assume that this one needed
+    # and therefore, we ignore the generation
+    if len(bps) == 1:
+        return bps
+
+    try:
+        int_generation = int(generation)
+        # Check if generation is in available generations
+        if int_generation in [1, 2]:
+            bps = [x for x in bps if int(x.get_attribute('generation')) == int_generation]
+            return bps
+        else:
+            print("   Warning! Actor Generation is not valid. No actor will be spawned.")
+            return []
+    except:
+        print("   Warning! Actor Generation is not valid. No actor will be spawned.")
+        return []
+
+
 def process_img(image):
     i = np.array(image.raw_data)
     # print(dir(image))
@@ -137,6 +163,29 @@ def recursive_listen(sensor_data, sensor_queue, sensor_name):
     sensor_queue.put((sensor_data.frame, sensor_name, sensor_data))
 
 
+def spawn_rgb_cam(world, cam_bp, size_x, size_y, fov, transform, vehicle=None):
+    cam_bp.set_attribute("image_size_x", f"{size_x}")
+    cam_bp.set_attribute("image_size_y", f"{size_y}")
+    cam_bp.set_attribute("fov", str(fov))
+    if vehicle is not None:
+        cam = world.spawn_actor(cam_bp, transform, attach_to=vehicle)
+    else:
+        cam = world.spawn_actor(cam_bp, transform)
+    return cam
+
+
+def spawn_lidar(world, lidar_bp, channel, pps, l_range, freq, transform, vehicle=None):
+    lidar_bp.set_attribute("channels", str(channel))
+    lidar_bp.set_attribute("points_per_second", str(pps))
+    lidar_bp.set_attribute("range", str(l_range))
+    lidar_bp.set_attribute("rotation_frequency", str(freq))
+    if vehicle is not None:
+        lidar = world.spawn_actor(lidar_bp, transform, attach_to=vehicle)
+    else:
+        lidar = world.spawn_actor(lidar_bp, transform)
+    return lidar
+
+
 def main():
     argparser = argparse.ArgumentParser(
         description=__doc__)
@@ -165,9 +214,14 @@ def main():
     argparser.add_argument(
         '-v', '--num-vehicle',
         metavar='V',
-        default=500,
+        default=10,
         type=int,
         help='Number of Vehicles')
+    argparser.add_argument(
+        '--generationv',
+        metavar='G',
+        default='All',
+        help='restrict to certain vehicle generation (values: "1","2","All" - default: "All")')
     args = argparser.parse_args()
 
     logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
@@ -186,59 +240,103 @@ def main():
         settings = world.get_settings()
 
         # We set CARLA synchronous mode
-        settings.fixed_delta_seconds = 0.05
+        settings.fixed_delta_seconds = 0.1
         settings.synchronous_mode = True
         world.apply_settings(settings)
         spectator = world.get_spectator()
         tm = client.get_trafficmanager(args.tm_port)
         tm.set_synchronous_mode(True)
 
+        tm.set_global_distance_to_leading_vehicle(2.5)
+
         blueprint_library = world.get_blueprint_library()
         bp = blueprint_library.filter("model3")[0]
         # print(bp)
 
-        # spawn car
-        spawn_point = random.choice(world.get_map().get_spawn_points())
-        vehicle = world.spawn_actor(bp, spawn_point)
+        # # spawn car
+        # spawn_point = random.choice(world.get_map().get_spawn_points())
+        # vehicle = world.spawn_actor(bp, spawn_point)
+        # vehicle.apply_control(carla.VehicleControl(throttle=1, steer=0))
+        # actor_list.append(vehicle)
 
-        vehicle.apply_control(carla.VehicleControl(throttle=1, steer=0))
+        # ----------------------------------spawn vehicles autopilot-------------------------------------------------
+        batch = []
+        vehicles_list = []
+        spawn_points = world.get_map().get_spawn_points()
+        number_of_spawn_points = len(spawn_points)
+
+        if args.num_vehicle < number_of_spawn_points:
+            random.shuffle(spawn_points)
+        elif args.num_vehicle > number_of_spawn_points:
+            msg = 'requested %d vehicles, but could only find %d spawn points'
+            logging.warning(msg, args.number_of_vehicles, number_of_spawn_points)
+            args.num_vehicle = number_of_spawn_points
+
+        blueprints = get_actor_blueprints(world, 'vehicle.*', args.generationv)
+        blueprints = sorted(blueprints, key=lambda bp: bp.id)
+
+        SpawnActor = carla.command.SpawnActor
+        SetAutopilot = carla.command.SetAutopilot
+        FutureActor = carla.command.FutureActor
+
+        for n, transform in enumerate(spawn_points):
+            if n >= args.num_vehicle:
+                break
+            blueprint = random.choice(blueprints)
+
+            blueprint.set_attribute('role_name', 'autopilot')
+
+            # spawn the cars and set their autopilot and light state all together
+            batch.append(SpawnActor(blueprint, transform)
+                         .then(SetAutopilot(FutureActor, True, tm.get_port())))
+            print('yes')
+
+        for response in client.apply_batch_sync(batch, False):
+            if response.error:
+                logging.error(response.error)
+            else:
+                vehicles_list.append(response.actor_id)
+
+        # get ego vehicle
+        while len(world.get_actors().filter('vehicle.*')) < args.num_vehicle:
+            world.tick()
+            print('waiting')
+        vehicle_list = world.get_actors().filter('vehicle.*')
+        print(vehicle_list)
+        vehicle = vehicle_list[0]
         actor_list.append(vehicle)
 
         # ------------------------------------------------------------------------
         # spawn sensors
         # --------------------------------------------RGB Cameras--------------------------------------------------
         cam_bp = blueprint_library.find("sensor.camera.rgb")
-        cam_bp.set_attribute("image_size_x", f"{IM_WIDTH}")
-        cam_bp.set_attribute("image_size_y", f"{IM_HEIGHT}")
-        cam_bp.set_attribute("fov", "110")
 
-        # camera locations
+        # camera locations & rotations
         cam_spawn_point1 = carla.Transform(carla.Location(z=10), carla.Rotation(pitch=270, yaw=0, roll=0))
         cam_spawn_point2 = carla.Transform(carla.Location(x=-3, z=3), carla.Rotation(pitch=0, yaw=0, roll=0))
+        cam_spawn_point3 = carla.Transform(carla.Location(z=40), carla.Rotation(pitch=270, yaw=0, roll=0))
 
         # spawn cameras
-        sensor_cam1 = world.spawn_actor(cam_bp, cam_spawn_point1, attach_to=vehicle)
-        sensor_cam2 = world.spawn_actor(cam_bp, cam_spawn_point2, attach_to=vehicle)
+        sensor_cam1 = spawn_rgb_cam(world, cam_bp, IM_WIDTH, IM_HEIGHT, 110, cam_spawn_point1, vehicle)
+        sensor_cam2 = spawn_rgb_cam(world, cam_bp, IM_WIDTH, IM_HEIGHT, 110, cam_spawn_point2, vehicle)
+        sensor_cam3 = spawn_rgb_cam(world, cam_bp, IM_WIDTH, IM_HEIGHT, 110, cam_spawn_point3)
 
         # camera listen() & append sensor_list
         sensor_cam1.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_top"))
         sensor_list.append(sensor_cam1)
         sensor_cam2.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_back"))
         sensor_list.append(sensor_cam2)
+        sensor_cam3.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_bev"))
+        sensor_list.append(sensor_cam3)
 
         # -----------------------------------------------lidar-------------------------------------------------------
         lidar_bp = blueprint_library.find("sensor.lidar.ray_cast")
-        lidar_bp.set_attribute("channels", "64")
-        lidar_bp.set_attribute("points_per_second", "200000")
-        lidar_bp.set_attribute("range", "32")
-        # lidar_bp.set_attribute("rotation_frequency", str(int(1 / settings.fixed_delta_seconds)))
-        lidar_bp.set_attribute("rotation_frequency", str(int(1 / 0.05)))
-
-        # lidar location
+        # lidar location & rotation
         lidar_spawn_point1 = carla.Transform(carla.Location(z=2))
 
         # spawn lidar
-        lidar_01 = world.spawn_actor(lidar_bp, lidar_spawn_point1, attach_to=vehicle)
+        lidar_01 = spawn_lidar(world, lidar_bp, 64, 200000, 32, int(1 / settings.fixed_delta_seconds),
+                               lidar_spawn_point1, vehicle)
 
         # lidar listen() & append sensor_list
         lidar_01.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_01"))
@@ -254,7 +352,7 @@ def main():
             else:
                 offsets = np.random.uniform([-20, -20, 1], [20, 20, 5], [3, ])
 
-            lidar_bp = generate_lidar_bp(args, world, blueprint_library, 0.05)
+            lidar_bp = generate_lidar_bp(world, 0.05)
             # # Location of lidar, fixed to vehicle
             lidar_transform = carla.Transform(carla.Location(x=offsets[0], y=offsets[1], z=offsets[2]))
             lidar = world.spawn_actor(lidar_bp, lidar_transform, attach_to=vehicle)
@@ -281,6 +379,7 @@ def main():
         frame = 0
         while True:
             world.tick()
+
             world_frame = world.get_snapshot().frame
             print("\nWorld's frame: %d" % world_frame)
             point_list = o3d.geometry.PointCloud()
@@ -288,16 +387,17 @@ def main():
             try:
                 ego_pose = None
                 indicator = True
+
                 for _ in range(len(s_lidars)):
                     data, view = lidar_queue.get()
                     ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
                                                         indicator)
                     point_list += point_list_2
                     indicator = False
+
                 if frame == 0:
                     geometry = o3d.geometry.PointCloud(point_list)
                     vis.add_geometry(geometry)
-
                 geometry.points = point_list.points
                 geometry.colors = point_list.colors
                 vis.update_geometry(geometry)
@@ -305,18 +405,17 @@ def main():
                     vis.poll_events()
                     vis.update_renderer()
                     time.sleep(0.005)
-
                 rgbs = []
                 lidars = []
 
                 for i in range(0, len(sensor_list)):
                     s_frame, s_name, s_data = sensor_queue.get(True, 1.0)
+                    print(s_frame, s_name)
                     sensor_type = s_name.split('_')[0]
                     if sensor_type == "rgb":
                         rgbs.append(process_img(s_data))
                     elif sensor_type == "lidar":
                         lidars.append(process_lidar(s_data))
-
                 rgb = np.concatenate(rgbs, axis=1)[..., :3]
                 lidar = np.concatenate(lidars, axis=1)[..., :3]
                 cv2.imshow("vizs", merge_visualize_data(rgb, lidar))
@@ -344,6 +443,7 @@ def main():
         for s_lidar in s_lidars:
             s_lidar.destroy()
         print("all done")
+
 
 if __name__ == '__main__':
 
