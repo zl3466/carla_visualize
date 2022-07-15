@@ -11,11 +11,10 @@ try:
 except IndexError:
     pass
 
-
 from nicetry import *
+
 IM_WIDTH = 256
 IM_HEIGHT = 256
-
 
 
 def main():
@@ -232,11 +231,11 @@ def main():
                         time_file.write(str(frame) + ", " + str(timestamp) + "\n")
                         time_file.close()
                         """
-                        #TODO：
-                        #save_raw_data(data,world,lidar_id,vehicle-id,save_dir,frame,view)
-                        #TODO: 看看可不可以合并到一起
+                        # TODO：
+                        # save_raw_data(data,world,lidar_id,vehicle-id,save_dir,frame,view)
+                        # TODO: 看看可不可以合并到一起
                         ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
-                                                            indicator,frame,args.save_dir,view=view)
+                                                            indicator, frame, args.save_dir, view=view)
                         point_list += point_list_2
                         indicator = False
                     if frame == 0:
