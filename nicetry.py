@@ -109,6 +109,7 @@ def save_raw_data(point_cloud, world, lidar_id, vehicle_id, frame, save_dir, vie
         #  dtype=np.dtyoe('f4') is the original approach for processing non-semantic lidar raw data
         #  (see function process_lidar())
         # data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype('f4'))
+        view = '/' + view
         data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype([
             ('x', np.float32), ('y', np.float32), ('z', np.float32),
             ('CosAngle', np.float32), ('ObjIdx', np.uint32), ('ObjTag', np.uint32)]))
