@@ -261,6 +261,12 @@ def spawn_lidar(world, lidar_bp, channel, pps, l_range, freq, transform, vehicle
     return lidar
 
 
+def at_intersection(actor, index, x_max, x_min, y_max, y_min):
+    sensor_x = actor.get_transform().location.x
+    sensor_y = actor.get_transform().location.y
+    return x_max[index] >= sensor_x >= x_min[index] and y_max[index] >= sensor_y >= y_min[index]
+
+
 def main():
     argparser = argparse.ArgumentParser(
         description=__doc__)
@@ -390,6 +396,12 @@ def main():
         the_x = Intersection_x[Intersection_Index]
         the_y = Intersection_y[Intersection_Index]
 
+        Intersection_r = 20.00  # 18 meters
+        Intersection_x_max = [i + Intersection_r for i in Intersection_x]
+        Intersection_x_min = [i - Intersection_r for i in Intersection_x]
+        Intersection_y_max = [i + Intersection_r for i in Intersection_y]
+        Intersection_y_min = [i - Intersection_r for i in Intersection_y]
+
         # ------------------------------------------------------------------------
         # spawn sensors
         # --------------------------------------------RGB Cameras--------------------------------------------------
@@ -406,12 +418,14 @@ def main():
         sensor_cam1 = spawn_rgb_cam(world, cam_bp, IM_WIDTH, IM_HEIGHT, 110, cam_spawn_point1, vehicle)
         sensor_cam2 = spawn_rgb_cam(world, cam_bp, IM_WIDTH, IM_HEIGHT, 110, cam_spawn_point2)
 
-        # camera listen() & append sensor_list
+        # camera listen()
         sensor_cam0.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_top"))
-        sensor_list.append(sensor_cam0)
         sensor_cam1.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_back"))
-        sensor_list.append(sensor_cam1)
         sensor_cam2.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_bev"))
+
+        # append sensor_list
+        sensor_list.append(sensor_cam0)
+        sensor_list.append(sensor_cam1)
         sensor_list.append(sensor_cam2)
 
         # -----------------------------------------------lidar-------------------------------------------------------
@@ -421,15 +435,17 @@ def main():
 
         # spawn lidar
         lidar_0 = spawn_lidar(world, lidar_bp, 64, 200000, 32, int(1 / settings.fixed_delta_seconds),
-                               lidar_spawn_point0, vehicle)
+                              lidar_spawn_point0, vehicle)
 
-        # lidar listen() & append sensor_list
+        # lidar listen()
         lidar_0.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_0"))
+
+        # lidar append sensor_list
         sensor_list.append(lidar_0)
 
         lidar_save_dir = args.save_dir + "/NonSemantic"
-        # lidar number (default 1)
 
+        # lidar number (default 1)
         for i in range(1):
             # -----------------------------------create directory for saving data-------------------------------------
             view = 'lidar_' + str(i)
@@ -503,10 +519,10 @@ def main():
 
                 for _ in range(len(s_lidars)):
                     data, view = lidar_queue.get()
-                    ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
-                                                        indicator)
-                    save_raw_data(data, world, s_lidars[view].id, vehicle.id, frame, s_lidar_save_dir,
-                                  view=view)
+                    ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose, indicator)
+                    if at_intersection(vehicle, Intersection_Index, Intersection_x_max, Intersection_x_min,
+                                       Intersection_y_max, Intersection_y_min):
+                        save_raw_data(data, world, s_lidars[view].id, vehicle.id, frame, s_lidar_save_dir, view=view)
                     point_list += point_list_2
                     indicator = False
 
@@ -533,8 +549,10 @@ def main():
                         lidars.append(process_lidar(s_data))
                         # save raw_data
                         sensor_index = len(sensor_list) - i - 1
-                        save_raw_data(s_data, world, sensor_list[sensor_index].id, vehicle.id, frame,
-                                      args.save_dir + "/NonSemantic", view=s_name)
+                        if at_intersection(vehicle, Intersection_Index, Intersection_x_max, Intersection_x_min,
+                                           Intersection_y_max, Intersection_y_min):
+                            save_raw_data(s_data, world, sensor_list[sensor_index].id, vehicle.id, frame,
+                                          args.save_dir + "/NonSemantic", view=s_name)
                 rgb = np.concatenate(rgbs, axis=1)[..., :3]
                 lidar = np.concatenate(lidars, axis=1)[..., :3]
                 cv2.imshow("vizs", merge_visualize_data(rgb, lidar))
