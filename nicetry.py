@@ -490,15 +490,27 @@ def main():
             s_lidars.append(lidar)
             s_lidars[i].listen(lambda data, view=views[i]: lidar_queue.put([data, view]))
 
+        # window for dense point cloud
         vis = o3d.visualization.Visualizer()
         vis.create_window(
-            window_name='Segmented Scene',
+            window_name='Dense Segmented Scene',
             width=960,
             height=540,
             left=480,
             top=270)
         vis.get_render_option().background_color = [0.0, 0.0, 0.0]
         vis.get_render_option().point_size = 3
+
+        # window for sparse point cloud
+        vis2 = o3d.visualization.Visualizer()
+        vis2.create_window(
+            window_name='Sparse Segmented Scene',
+            width=960,
+            height=540,
+            left=480,
+            top=270)
+        vis2.get_render_option().background_color = [0.0, 0.0, 0.0]
+        vis2.get_render_option().point_size = 3
 
         # ----------------------------------------------Recording--------------------------------------------------
         # log_name = "trial2.log"
@@ -512,12 +524,13 @@ def main():
             world_frame = world.get_snapshot().frame
             print("\nWorld's frame: %d" % world_frame)
             point_list = o3d.geometry.PointCloud()
+            sparse_point_list = o3d.geometry.PointCloud()
 
             try:
                 ego_pose = None
                 indicator = True
 
-                for _ in range(len(s_lidars)):
+                for i in range(len(s_lidars)):
                     data, view = lidar_queue.get()
                     ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose, indicator)
                     if at_intersection(vehicle, Intersection_Index, Intersection_x_max, Intersection_x_min,
@@ -526,9 +539,18 @@ def main():
                     point_list += point_list_2
                     indicator = False
 
+                    # the sparse point cloud gets only the data from the first lidar
+                    if i == 0:
+                        sparse_point_list += point_list_2
+                    # sparse_point_list = point_list
+
+
                 if frame == 0:
                     geometry = o3d.geometry.PointCloud(point_list)
+                    geometry2 = o3d.geometry.PointCloud(sparse_point_list)
                     vis.add_geometry(geometry)
+                    vis2.add_geometry(geometry2)
+
                 geometry.points = point_list.points
                 geometry.colors = point_list.colors
                 vis.update_geometry(geometry)
@@ -536,6 +558,16 @@ def main():
                     vis.poll_events()
                     vis.update_renderer()
                     time.sleep(0.005)
+
+                geometry2.points = sparse_point_list.points
+                geometry2.colors = sparse_point_list.colors
+                vis2.update_geometry(geometry2)
+                for i in range(1):
+                    vis2.poll_events()
+                    vis2.update_renderer()
+                    time.sleep(0.005)
+
+
                 rgbs = []
                 lidars = []
 
