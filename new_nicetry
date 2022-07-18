@@ -101,9 +101,23 @@ def process_img(image):
 
 # use to save raw data
 def save_raw_data(point_cloud, world, lidar_id, vehicle_id, frame, save_dir, view=0):
-    data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype([
-        ('x', np.float32), ('y', np.float32), ('z', np.float32),
-        ('CosAngle', np.float32), ('ObjIdx', np.uint32), ('ObjTag', np.uint32)]))
+    print(view)
+    # check if the incoming lidar is semantic or non-semantic
+    if isinstance(view, str):
+        # TODO: non-semantic lidar differ from semantic lidar when forming buffer,
+        #  ValueError: buffer size must be a multiple of element size
+        #  dtype=np.dtyoe('f4') is the original approach for processing non-semantic lidar raw data
+        #  (see function process_lidar())
+        # data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype('f4'))
+        view = '/' + view
+        data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype([
+            ('x', np.float32), ('y', np.float32), ('z', np.float32),
+            ('CosAngle', np.float32), ('ObjIdx', np.uint32), ('ObjTag', np.uint32)]))
+    else:
+        data = np.frombuffer(point_cloud.raw_data, dtype=np.dtype([
+            ('x', np.float32), ('y', np.float32), ('z', np.float32),
+            ('CosAngle', np.float32), ('ObjIdx', np.uint32), ('ObjTag', np.uint32)]))
+
     non_ego = np.array(data['ObjIdx']) != vehicle_id
     points = np.array([data['x'], data['y'], data['z']]).T
     points = points[non_ego, :]
@@ -210,6 +224,17 @@ def merge_visualize_data(rgb, lidar):
 
 
 def process_lidar(data):
+    # new added
+    # TODO:这个 intensity 怎么存和怎么用
+    """
+    data = np.frombuffer(data.raw_data,dtype=np.dtype([
+            ('x', np.float32), ('y', np.float32), ('z', np.float32),
+            ('intensity', np.float32)]))
+    points = np.array([data['x'],data['y'],data['z']]).T
+    # add noise
+    points += np.random.uniform(-0.02, 0.02, size=points.shape)
+    np.save(save_dir + "/velodyne" + str(view) + "/" + str(frame), points)
+    """
     i = np.frombuffer(data.raw_data, dtype=np.dtype('f4'))
     i = copy.deepcopy(i)
     i = np.reshape(i, (int(i.shape[0] / 4), 4))
@@ -411,40 +436,43 @@ def main():
         lidar_01.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_01"))
         sensor_list.append(lidar_01)
 
-        save_dir = args.save_dir + "/NonSemantic"
+        lidar_save_dir = args.save_dir + "/NonSemantic"
         # lidar number (default 1)
         for i in range(1):
             # -----------------------------------create directory for saving data-------------------------------------
             # only velocity need extra code, all others used in gen_points to create 3d scene
-            if not os.path.exists(save_dir + "/velocities" + str(i)):
-                os.mkdir(args.save_dir + "/velocities" + str(i))
-            if not os.path.exists(save_dir + "/instances" + str(i)):
-                os.mkdir(args.save_dir + "/instances" + str(i))
-            if not os.path.exists(save_dir + "/labels" + str(i)):
-                os.mkdir(args.save_dir + "/labels" + str(i))
-            if not os.path.exists(save_dir + "/velodyne" + str(i)):
-                os.mkdir(args.save_dir + "/velodyne" + str(i))
-            if not os.path.exists(save_dir + "/pose" + str(i)):
-                os.mkdir(save_dir + "/pose" + str(i))
+            # TODO: 怎么存lidar 主要是怎么用intensity
+            """
+            if not os.path.exists(lidar_save_dir + "/velocities" + str(i)):
+                os.makedirs(lidar_save_dir + "/velocities" + str(i))
+            if not os.path.exists(lidar_save_dir + "/instances" + str(i)):
+                os.makedirs(lidar_save_dir + "/instances" + str(i))
+            if not os.path.exists(lidar_save_dir + "/labels" + str(i)):
+                os.makedirs(lidar_save_dir + "/labels" + str(i))
+            if not os.path.exists(lidar_save_dir + "/pose" + str(i)):
+                os.makedirs(lidar_save_dir + "/pose" + str(i))
+            """
+            if not os.path.exists(lidar_save_dir + "/velodyne" + str(i)):
+                os.makedirs(lidar_save_dir + "/velodyne" + str(i))
 
         # -----------------------------------semantic lidar for 3d mapping---------------------------------------------
         NUM_SENSORS = 5
         views = np.arange(NUM_SENSORS)
         s_lidars = []
-        save_dir = args.save_dir + "/Semantic"
+        s_lidar_save_dir = args.save_dir + "/Semantic"
         for i in range(NUM_SENSORS):
             # -----------------------------------save raw data-------------------------------------
             # only velocity need extra code, all others used in gen_points to create 3d scene
-            if not os.path.exists(save_dir + "/velocities" + str(i)):
-                os.mkdir(args.save_dir + "/velocities" + str(i))
-            if not os.path.exists(save_dir + "/instances" + str(i)):
-                os.mkdir(args.save_dir + "/instances" + str(i))
-            if not os.path.exists(save_dir + "/labels" + str(i)):
-                os.mkdir(args.save_dir + "/labels" + str(i))
-            if not os.path.exists(save_dir + "/velodyne" + str(i)):
-                os.mkdir(args.save_dir + "/velodyne" + str(i))
-            if not os.path.exists(save_dir + "/pose" + str(i)):
-                os.mkdir(save_dir + "/pose" + str(i))
+            if not os.path.exists(s_lidar_save_dir + "/velocities" + str(i)):
+                os.makedirs(s_lidar_save_dir + "/velocities" + str(i))
+            if not os.path.exists(s_lidar_save_dir + "/instances" + str(i)):
+                os.makedirs(s_lidar_save_dir + "/instances" + str(i))
+            if not os.path.exists(s_lidar_save_dir + "/labels" + str(i)):
+                os.makedirs(s_lidar_save_dir + "/labels" + str(i))
+            if not os.path.exists(s_lidar_save_dir + "/velodyne" + str(i)):
+                os.makedirs(s_lidar_save_dir + "/velodyne" + str(i))
+            if not os.path.exists(s_lidar_save_dir + "/pose" + str(i)):
+                os.makedirs(s_lidar_save_dir + "/pose" + str(i))
 
             # -----------------------------------spawn the semantic lidars-------------------------------------
             if i == 0:  # Onboard sensor
@@ -492,7 +520,7 @@ def main():
                     data, view = lidar_queue.get()
                     ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose,
                                                         indicator)
-                    save_raw_data(data, world, s_lidars[view].id, vehicle.id, frame, args.save_dir + "/Semantic",
+                    save_raw_data(data, world, s_lidars[view].id, vehicle.id, frame, s_lidar_save_dir,
                                   view=view)
                     point_list += point_list_2
                     indicator = False
@@ -519,14 +547,16 @@ def main():
                     elif sensor_type == "lidar":
                         lidars.append(process_lidar(s_data))
                         # save raw_data
-                    # TODO: lidar_01 is equal to sensor_list[i] or not 找怎么知道他的id
-                    # Non semantic view name change from num to sensor name
-                    save_raw_data(s_data, world, sensor_list[len(sensor_list)-i-1].id, vehicle.id, frame, args.save_dir + "/NonSemantic",
-                                      view=s_name)
+                        # TODO: lidar_01 is equal to sensor_list[i] or not
+                        sensor_index = len(sensor_list) - i - 1
+                        save_raw_data(s_data, world, sensor_list[sensor_index].id, vehicle.id, frame,
+                                      args.save_dir + "/NonSemantic", view=s_name)
                 rgb = np.concatenate(rgbs, axis=1)[..., :3]
                 lidar = np.concatenate(lidars, axis=1)[..., :3]
                 cv2.imshow("vizs", merge_visualize_data(rgb, lidar))
                 cv2.waitKey(100)
+
+                # np.save(lidar_save_dir, lidar)
 
             except Empty:
                 print("inappropriate sensor data")
