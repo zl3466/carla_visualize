@@ -24,30 +24,31 @@ import open3d as o3d
 IM_WIDTH = 256
 IM_HEIGHT = 256
 LABEL_COLORS = np.array([
-    (0, 0, 0),  # None
-    (70, 70, 70),  # Building
-    (100, 40, 40),  # Fences
-    (55, 90, 80),  # Other
-    (255, 255, 0),  # Pedestrian
-    (153, 153, 153),  # Pole
+    (255, 255, 255), # None
+    (70, 70, 70),    # Building
+    (100, 40, 40),   # Fences
+    (55, 90, 80),    # Other
+    (220, 20, 60),   # Pedestrian
+    (153, 153, 153), # Pole
     (157, 234, 50),  # RoadLines
-    (0, 0, 255),  # Road
-    (255, 255, 255),  # Sidewalk
-    (0, 155, 0),  # Vegetation
-    (255, 0, 0),  # Vehicle
-    (102, 102, 156),  # Wall
-    (220, 220, 0),  # TrafficSign
+    (128, 64, 128),  # Road
+    (244, 35, 232),  # Sidewalk
+    (107, 142, 35),  # Vegetation
+    (0, 0, 142),     # Vehicle
+    (102, 102, 156), # Wall
+    (220, 220, 0),   # TrafficSign
     (70, 130, 180),  # Sky
-    (0, 0, 0),  # Ground
-    (150, 100, 100),  # Bridge
-    (230, 150, 140),  # RailTrack
-    (180, 165, 180),  # GuardRail
+    (81, 0, 81),     # Ground
+    (150, 100, 100), # Bridge
+    (230, 150, 140), # RailTrack
+    (180, 165, 180), # GuardRail
     (250, 170, 30),  # TrafficLight
-    (110, 190, 160),  # Static
+    (110, 190, 160), # Static
     (170, 120, 50),  # Dynamic
-    (45, 60, 150),  # Water
-    (145, 170, 100),  # Terrain
+    (45, 60, 150),   # Water
+    (145, 170, 100), # Terrain
 ]) / 255.0
+
 intersection_locations = {
     "Town05": [
         [31.80, 34.10, 29.15, 27.54, 29.15, 31.55, 31.80, 100.42, 151.52, -51.85, -47.7, -47.7, -123.95, -124.55,
@@ -494,8 +495,8 @@ def main():
         vis = o3d.visualization.Visualizer()
         vis.create_window(
             window_name='Dense Segmented Scene',
-            width=960,
-            height=540,
+            width=IM_WIDTH*2,
+            height=IM_HEIGHT*2,
             left=480,
             top=270)
         vis.get_render_option().background_color = [0.0, 0.0, 0.0]
@@ -505,8 +506,8 @@ def main():
         vis2 = o3d.visualization.Visualizer()
         vis2.create_window(
             window_name='Sparse Segmented Scene',
-            width=960,
-            height=540,
+            width=IM_WIDTH*2,
+            height=IM_HEIGHT*2,
             left=480,
             top=270)
         vis2.get_render_option().background_color = [0.0, 0.0, 0.0]
@@ -518,6 +519,11 @@ def main():
 
         # -----------------------------------Run Visualization---------------------------------------------
         frame = 0
+        cap = cv2.VideoCapture(0)
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        out1 = cv2.VideoWriter('sensor_view.avi', fourcc, 10, (IM_WIDTH * len(sensor_list), IM_HEIGHT))
+        out2 = cv2.VideoWriter('point_cloud_dense.avi', fourcc, 10, (IM_WIDTH, IM_HEIGHT))
+        out3 = cv2.VideoWriter('point_cloud_sparse.avi', fourcc, 10, (IM_WIDTH, IM_HEIGHT))
         while True:
             world.tick()
 
@@ -567,6 +573,22 @@ def main():
                     vis2.update_renderer()
                     time.sleep(0.005)
 
+                # dense_img = np.uint8(o3d.geometry.Image(np.uint8(np.asarray(geometry.points))))
+                # sparse_img = np.uint8(o3d.geometry.Image(np.uint8(np.asarray(geometry2.points))))
+                # dense_img = cv2.resize(dense_img, (IM_WIDTH, IM_HEIGHT))
+                # sparse_img = cv2.resize(sparse_img, (IM_WIDTH, IM_HEIGHT))
+                # cv2.imshow('test', dense_img)
+
+                # out2.write(np.uint8(np.asarray(geometry.points)))
+                # out3.write(np.uint8(np.asarray(geometry2.points)))
+
+                # TODO: np.asarray(point_list) data structure;
+                #  apply lidar_to_bev to a colored pointlist: identify the index of x and y coordinates of each point
+                #  within array
+                # dense_img = lidar_to_bev(point_list).astype(np.uint8)
+                # dense_img = cv2.resize(dense_img.astype(np.uint8), (IM_WIDTH, IM_HEIGHT))
+                # cv2.imshow('test', dense_img)
+
 
                 rgbs = []
                 lidars = []
@@ -588,7 +610,10 @@ def main():
                 rgb = np.concatenate(rgbs, axis=1)[..., :3]
                 lidar = np.concatenate(lidars, axis=1)[..., :3]
                 cv2.imshow("vizs", merge_visualize_data(rgb, lidar))
+                # out1.write(merge_visualize_data(rgb, lidar))
                 cv2.waitKey(100)
+
+
 
             except Empty:
                 print("inappropriate sensor data")
@@ -597,6 +622,10 @@ def main():
 
     finally:
         # client.stop_recorder()
+        cap.release()
+        out1.release()
+        out2.release()
+        out3.release()
         world.apply_settings(original_settings)
         for vehicle in vehicle_list:
             vehicle.destroy()
