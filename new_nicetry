@@ -554,11 +554,12 @@ def main():
 
         # -----------------------------------Run Visualization---------------------------------------------
         frame = 0
-        cap = cv2.VideoCapture(0)
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out1 = cv2.VideoWriter('sensor_view.avi', fourcc, 10, (IM_WIDTH * len(sensor_list), IM_HEIGHT))
-        out2 = cv2.VideoWriter('point_cloud_dense.avi', fourcc, 10, (IM_WIDTH, IM_HEIGHT))
-        out3 = cv2.VideoWriter('point_cloud_sparse.avi', fourcc, 10, (IM_WIDTH, IM_HEIGHT))
+        # -----------------------------------save video of visualization---------------------------------------------
+        # cap = cv2.VideoCapture(0)
+        # fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        # out1 = cv2.VideoWriter('sensor_view.avi', fourcc, 10, (IM_WIDTH * len(sensor_list), IM_HEIGHT))
+        # out2 = cv2.VideoWriter('point_cloud_dense.avi', fourcc, 10, (IM_WIDTH, IM_HEIGHT))
+        # out3 = cv2.VideoWriter('point_cloud_sparse.avi', fourcc, 10, (IM_WIDTH, IM_HEIGHT))
         while True:
             world.tick()
 
@@ -657,10 +658,10 @@ def main():
 
     finally:
         # client.stop_recorder()
-        cap.release()
-        out1.release()
-        out2.release()
-        out3.release()
+        # cap.release()
+        # out1.release()
+        # out2.release()
+        # out3.release()
         world.apply_settings(original_settings)
         for vehicle in vehicle_list:
             vehicle.destroy()

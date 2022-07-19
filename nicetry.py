@@ -519,6 +519,7 @@ def main():
 
         # -----------------------------------Run Visualization---------------------------------------------
         frame = 0
+        # -----------------------------------save video of visualization---------------------------------------------
         cap = cv2.VideoCapture(0)
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         out1 = cv2.VideoWriter('sensor_view.avi', fourcc, 10, (IM_WIDTH * len(sensor_list), IM_HEIGHT))
