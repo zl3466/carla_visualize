@@ -492,26 +492,26 @@ def main():
             s_lidars[i].listen(lambda data, view=views[i]: lidar_queue.put([data, view]))
 
         # window for dense point cloud
-        vis = o3d.visualization.Visualizer()
-        vis.create_window(
+        vis0 = o3d.visualization.Visualizer()
+        vis0.create_window(
             window_name='Dense Segmented Scene',
             width=IM_WIDTH*2,
             height=IM_HEIGHT*2,
             left=480,
             top=270)
-        vis.get_render_option().background_color = [0.0, 0.0, 0.0]
-        vis.get_render_option().point_size = 3
+        vis0.get_render_option().background_color = [0.0, 0.0, 0.0]
+        vis0.get_render_option().point_size = 3
 
         # window for sparse point cloud
-        vis2 = o3d.visualization.Visualizer()
-        vis2.create_window(
+        vis1 = o3d.visualization.Visualizer()
+        vis1.create_window(
             window_name='Sparse Segmented Scene',
             width=IM_WIDTH*2,
             height=IM_HEIGHT*2,
-            left=480,
+            left=480 + IM_WIDTH*2,
             top=270)
-        vis2.get_render_option().background_color = [0.0, 0.0, 0.0]
-        vis2.get_render_option().point_size = 3
+        vis1.get_render_option().background_color = [0.0, 0.0, 0.0]
+        vis1.get_render_option().point_size = 3
 
         # ----------------------------------------------Recording--------------------------------------------------
         # log_name = "trial2.log"
@@ -522,9 +522,9 @@ def main():
         # -----------------------------------save video of visualization---------------------------------------------
         cap = cv2.VideoCapture(0)
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out1 = cv2.VideoWriter('sensor_view.avi', fourcc, 10, (IM_WIDTH * len(sensor_list), IM_HEIGHT))
-        out2 = cv2.VideoWriter('point_cloud_dense.avi', fourcc, 10, (IM_WIDTH, IM_HEIGHT))
-        out3 = cv2.VideoWriter('point_cloud_sparse.avi', fourcc, 10, (IM_WIDTH, IM_HEIGHT))
+        out0 = cv2.VideoWriter('sensor_view.avi', fourcc, 10, (IM_WIDTH * len(sensor_list), IM_HEIGHT))
+        out1 = cv2.VideoWriter('point_cloud_dense_vs_sparse.avi', fourcc, 10, (IM_WIDTH*4, IM_HEIGHT*2))
+        # out2 = cv2.VideoWriter('point_cloud_sparse.avi', fourcc, 10, (IM_WIDTH*2, IM_HEIGHT*2))
         while True:
             world.tick()
 
@@ -553,43 +553,37 @@ def main():
 
 
                 if frame == 0:
-                    geometry = o3d.geometry.PointCloud(point_list)
-                    geometry2 = o3d.geometry.PointCloud(sparse_point_list)
-                    vis.add_geometry(geometry)
-                    vis2.add_geometry(geometry2)
+                    geometry0 = o3d.geometry.PointCloud(point_list)
+                    geometry1 = o3d.geometry.PointCloud(sparse_point_list)
+                    vis0.add_geometry(geometry0)
+                    vis1.add_geometry(geometry1)
 
-                geometry.points = point_list.points
-                geometry.colors = point_list.colors
-                vis.update_geometry(geometry)
+                geometry0.points = point_list.points
+                geometry0.colors = point_list.colors
+                vis0.update_geometry(geometry0)
                 for i in range(1):
-                    vis.poll_events()
-                    vis.update_renderer()
+                    vis0.poll_events()
+                    vis0.update_renderer()
                     time.sleep(0.005)
 
-                geometry2.points = sparse_point_list.points
-                geometry2.colors = sparse_point_list.colors
-                vis2.update_geometry(geometry2)
+                # get the image and scale and convert to uint8 type
+                o3d_screenshot_dense = vis0.capture_screen_float_buffer()
+                o3d_screenshot_dense = (255.0 * np.asarray(o3d_screenshot_dense)).astype(np.uint8)
+
+                geometry1.points = sparse_point_list.points
+                geometry1.colors = sparse_point_list.colors
+                vis1.update_geometry(geometry1)
                 for i in range(1):
-                    vis2.poll_events()
-                    vis2.update_renderer()
+                    vis1.poll_events()
+                    vis1.update_renderer()
                     time.sleep(0.005)
 
-                # dense_img = np.uint8(o3d.geometry.Image(np.uint8(np.asarray(geometry.points))))
-                # sparse_img = np.uint8(o3d.geometry.Image(np.uint8(np.asarray(geometry2.points))))
-                # dense_img = cv2.resize(dense_img, (IM_WIDTH, IM_HEIGHT))
-                # sparse_img = cv2.resize(sparse_img, (IM_WIDTH, IM_HEIGHT))
-                # cv2.imshow('test', dense_img)
+                o3d_screenshot_sparse = vis1.capture_screen_float_buffer()
+                o3d_screenshot_sparse = (255.0 * np.asarray(o3d_screenshot_sparse)).astype(np.uint8)
 
-                # out2.write(np.uint8(np.asarray(geometry.points)))
-                # out3.write(np.uint8(np.asarray(geometry2.points)))
-
-                # TODO: np.asarray(point_list) data structure;
-                #  apply lidar_to_bev to a colored pointlist: identify the index of x and y coordinates of each point
-                #  within array
-                # dense_img = lidar_to_bev(point_list).astype(np.uint8)
-                # dense_img = cv2.resize(dense_img.astype(np.uint8), (IM_WIDTH, IM_HEIGHT))
-                # cv2.imshow('test', dense_img)
-
+                canvas = np.concatenate((o3d_screenshot_dense, o3d_screenshot_sparse), axis=1)
+                # cv2.imshow("Semantic Lidar Dense/Sparse Comparison", canvas)
+                out1.write(canvas)
 
                 rgbs = []
                 lidars = []
@@ -611,7 +605,7 @@ def main():
                 rgb = np.concatenate(rgbs, axis=1)[..., :3]
                 lidar = np.concatenate(lidars, axis=1)[..., :3]
                 cv2.imshow("vizs", merge_visualize_data(rgb, lidar))
-                # out1.write(merge_visualize_data(rgb, lidar))
+                out0.write(merge_visualize_data(rgb, lidar))
                 cv2.waitKey(100)
 
 
@@ -624,9 +618,9 @@ def main():
     finally:
         # client.stop_recorder()
         cap.release()
+        out0.release()
         out1.release()
-        out2.release()
-        out3.release()
+        # out2.release()
         world.apply_settings(original_settings)
         for vehicle in vehicle_list:
             vehicle.destroy()
