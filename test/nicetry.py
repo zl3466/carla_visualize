@@ -342,7 +342,7 @@ def main():
     argparser.add_argument(
         '--save-dir',
         type=str,
-        default="/home/zl3466/Carla_Data",
+        default="/home/allenzj/Data",
         help='save directory for raw data')
     args = argparser.parse_args()
 
@@ -440,7 +440,7 @@ def main():
         for vehicle in vehicle_list:
             # -----------------------------------create directory for saving data-------------------------------------
             #TODO: create directories before using vehicle->Nonsemantic/Semantic->name->actual data
-            vehicle_save_dir=args.save_dir+"/"+vehicle.id
+            vehicle_save_dir=args.save_dir+"/"+str(vehicle.id)
             if not os.path.exists(vehicle_save_dir):
                 os.makedirs(vehicle_save_dir)
 
@@ -476,7 +476,6 @@ def main():
 
             # TODO: implement new recursive_listen() here; fill the extra attributes
             # camera listen()
-            """
             sensor_cam0.listen(
                 lambda data: recursive_listen(data, sensor_queue, "rgb_top",vehicle,args.town,Intersection_x_max, Intersection_x_min,
                                               Intersection_y_max, Intersection_y_min, world, frame,
@@ -493,6 +492,7 @@ def main():
             sensor_cam0.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_top"))
             sensor_cam1.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_back"))
             sensor_cam2.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_bev"))
+            """
 
             # append sensor_list
             sensor_list.append(sensor_cam0)
@@ -511,13 +511,12 @@ def main():
 
             # TODO: implement new recursive_listen() here; fill the extra attributes
             # lidar listen()
-            """
             lidar_0.listen(
                 lambda data: recursive_listen(data, sensor_queue, "lidar_0", vehicle, args.towns, Intersection_x_max,
                                               Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
                                               args.save_dir + "lidar_0", lidar_0))
-            """
-            lidar_0.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_0"))
+            
+            #lidar_0.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_0"))
 
             # lidar append sensor_list
             sensor_list.append(lidar_0)
@@ -532,14 +531,19 @@ def main():
                 # only velocity need extra code, all others used in gen_points to create 3d scene
                 if not os.path.exists(s_lidar_save_dir + "/velocities_" + str(i)):
                     os.makedirs(s_lidar_save_dir + "/velocities_" + str(i))
-                if not os.path.exists(s_lidar_save_dir + "/instances_" + str(i)):
-                    os.makedirs(s_lidar_save_dir + "/instances_" + str(i))
+                print(i)
                 if not os.path.exists(s_lidar_save_dir + "/labels_" + str(i)):
                     os.makedirs(s_lidar_save_dir + "/labels_" + str(i))
+                print(i)
+                if not os.path.exists(s_lidar_save_dir + "/instances_" + str(i)):
+                    os.makedirs(s_lidar_save_dir + "/instances_" + str(i))
+                print(i)
                 if not os.path.exists(s_lidar_save_dir + "/velodyne_" + str(i)):
                     os.makedirs(s_lidar_save_dir + "/velodyne_" + str(i))
+                print(i)
                 if not os.path.exists(s_lidar_save_dir + "/pose_" + str(i)):
                     os.makedirs(s_lidar_save_dir + "/pose_" + str(i))
+                print(i)
 
                 # -----------------------------------spawn the semantic lidars-------------------------------------
                 if i == 0:  # Onboard sensor
@@ -557,13 +561,11 @@ def main():
                 s_lidars[i].listen(lambda data, view=views[i]: lidar_queue.put([data, view]))
 
                 # TODO: implement semantic_lidar_callback() here in listen()
-                """
                 s_lidars[i].listen(
                     lambda data, view=views[i]: semantic_lidar_callback(data, view, lidar_queue, vehicle, args.towns,
                                                                         Intersection_x_max, Intersection_x_min,
                                                                         Intersection_y_max, Intersection_y_min, world,
                                                                         s_lidars, frame, s_lidar_save_dir))
-                    """
 
         # window for dense point cloud
         vis = o3d.visualization.Visualizer()
@@ -612,7 +614,7 @@ def main():
                 indicator = True
                 # TODO: 遍历方式需要改变
                 for vehicle in vehicle_list:
-                    s_lidar_save_dir=args.save_dir+"/"+vehicle.id+"/Semantic"
+                    s_lidar_save_dir=args.save_dir+"/"+str(vehicle.id)+"/Semantic"
                     for i in range(5):
                         data, view = lidar_queue.get()
                         ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose, indicator)
@@ -669,7 +671,7 @@ def main():
                 lidars = []
 
                 for vehicle in vehicle_list:
-                    lidar_save_dir=args.save_dir+"/"+vehicle.id+"/"+"NonSemantic"
+                    lidar_save_dir=args.save_dir+"/"+str(vehicle.id)+"/"+"NonSemantic"
                     for i in range(0, len(sensor_list)):
                         s_frame, s_name, s_data = sensor_queue.get(True, 1.0)
                         # print(s_frame, s_name)
