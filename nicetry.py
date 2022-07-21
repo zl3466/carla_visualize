@@ -587,6 +587,7 @@ def main():
 
                 rgbs = []
                 lidars = []
+                print(sensor_queue.queue)
 
                 for i in range(0, len(sensor_list)):
                     s_frame, s_name, s_data = sensor_queue.get(True, 1.0)
