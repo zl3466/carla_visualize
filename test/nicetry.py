@@ -607,7 +607,7 @@ def main():
             try:
                 ego_pose = None
                 indicator = True
-                # TODO: 遍历方式需要改变
+                # TODO: 遍历方式需要改变 不确定正序倒序
                 #for vehicle in vehicle_list:
                 for index in range(len(vehicle_list)-1,-1,-1):
                     vehicle=vehicle_list[index]
