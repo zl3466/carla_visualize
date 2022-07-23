@@ -104,8 +104,9 @@ def process_img(image):
 def save_raw_data(point_cloud, world, lidar_id, vehicle_id, frame, save_dir, view=0, image=None):
     # check if the incoming lidar is semantic or non-semantic
     actor_list = world.get_actors()
-    lidar_loc = actor_list.find(lidar_id).get_transform()
-    to_world = np.array(lidar_loc.get_matrix())
+    if lidar_id is not None:
+        lidar_loc = actor_list.find(lidar_id).get_transform()
+        to_world = np.array(lidar_loc.get_matrix())
 
     if isinstance(view, str):
         sensor_type = view.split('_')[0]
@@ -199,24 +200,24 @@ def gen_points(point_cloud, world, lidar_id, vehicle_id, ego_pose, indicator):
     return ego_pose, point_list
 
 
-# Semantic lidar
-def generate_lidar_bp(world, delta):
-    print(1)
-    lidar_bp = world.get_blueprint_library().find('sensor.lidar.ray_cast_semantic')
-    print(2)
-    lidar_bp.set_attribute('upper_fov', str(2))
-    print(3)
-    lidar_bp.set_attribute('lower_fov', str(-25))
-    print(4)
-    lidar_bp.set_attribute('channels', str(64.0))
-    print(5)
-    lidar_bp.set_attribute('range', str(50))
-    print(6)
-    lidar_bp.set_attribute('rotation_frequency', str(1.0 / delta))
-    print(7)
-    lidar_bp.set_attribute('points_per_second', str(200000))
-    print('yesyesyes')
-    return lidar_bp
+# # Semantic lidar
+# def generate_lidar_bp(world, delta):
+#     print(1)
+#     lidar_bp = world.get_blueprint_library().find('sensor.lidar.ray_cast_semantic')
+#     print(2)
+#     lidar_bp.set_attribute('upper_fov', str(2))
+#     print(3)
+#     lidar_bp.set_attribute('lower_fov', str(-25))
+#     print(4)
+#     lidar_bp.set_attribute('channels', str(64.0))
+#     print(5)
+#     lidar_bp.set_attribute('range', str(50))
+#     print(6)
+#     lidar_bp.set_attribute('rotation_frequency', str(1.0 / delta))
+#     print(7)
+#     lidar_bp.set_attribute('points_per_second', str(200000))
+#     print('yesyesyes')
+#     return lidar_bp
 
 
 def lidar_to_bev(lidar, min_x=-24, max_x=24, min_y=-16, max_y=16, pixels_per_meter=4, hist_max_per_pixel=10):
@@ -255,8 +256,9 @@ def process_lidar(data):
 
 # TODO: save camera and non-semantic lidar data during listen callback
 #  'the_sensor' is the sensor object, the id of which substitutes the original 'sensor_list[sensor_index].id' for save_raw_data()
-def recursive_listen(sensor_data, sensor_queue, sensor_name, vehicle, index, x_max, x_min, y_max, y_min, world,
-                     frame, save_dir, the_sensor, vis):
+def recursive_listen(sensor_data, sensor_name, vehicle, index, x_max, x_min, y_max, y_min, world,
+                     frame, save_dir, the_sensor, vis, sensor_queue):
+    print('sensor: ', sensor_name, 'vehicle: ', vehicle.id, vis)
     if vis:
         sensor_queue.put((sensor_data.frame, sensor_name, sensor_data))
     sensor_type = sensor_name.split('_')[0]
@@ -268,6 +270,7 @@ def recursive_listen(sensor_data, sensor_queue, sensor_name, vehicle, index, x_m
             save_raw_data(None, world, None, None, frame, save_dir, view=sensor_name, image=sensor_data)
         elif sensor_type == "lidar":
             save_raw_data(sensor_data, world, the_sensor.id, vehicle.id, frame, save_dir, view=sensor_name)
+    # print(sensor_queue.queue)
 
 
 # TODO: save semantic lidar data during listen callback
@@ -291,10 +294,15 @@ def spawn_rgb_cam(world, cam_bp, size_x, size_y, fov, transform, vehicle=None):
 
 
 def spawn_lidar(world, lidar_bp, channel, pps, l_range, freq, transform, vehicle=None):
+    print(0)
     lidar_bp.set_attribute("channels", str(channel))
+    print(1)
     lidar_bp.set_attribute("points_per_second", str(pps))
+    print(2)
     lidar_bp.set_attribute("range", str(l_range))
+    print(3)
     lidar_bp.set_attribute("rotation_frequency", str(freq))
+    print(4)
     if vehicle is not None:
         lidar = world.spawn_actor(lidar_bp, transform, attach_to=vehicle)
     else:
@@ -372,8 +380,6 @@ def main():
     try:
         sensor_list = []
         s_lidars = []
-        sensor_queue = Queue()
-        lidar_queue = Queue()
         frame = 0
 
         original_settings = world.get_settings()
@@ -396,6 +402,8 @@ def main():
         vehicles_list = []
         spawn_points = world.get_map().get_spawn_points()
         number_of_spawn_points = len(spawn_points)
+        num_s_lidar = 5
+        num_sensor = 4 + num_s_lidar
 
         if args.num_vehicle < number_of_spawn_points:
             random.shuffle(spawn_points)
@@ -442,7 +450,6 @@ def main():
 
         print(vehicle_list)
 
-
         # -------------------------------------Identify Target Intersection-------------------------------------------
         Intersection_Index = args.intersection_num - 1
         # the location of 20 intersections in the global coordinate in Town
@@ -462,9 +469,14 @@ def main():
         # --------------------------------------------RGB Cameras--------------------------------------------------
         cam_bp = blueprint_library.find("sensor.camera.rgb")
         lidar_bp = blueprint_library.find("sensor.lidar.ray_cast")
+        s_lidar_bp = world.get_blueprint_library().find('sensor.lidar.ray_cast_semantic')
 
         # multiple cars
         for vehicle in vehicle_list:
+
+            sensor_queue = Queue()
+            lidar_queue = Queue()
+
             if vehicle.id == target_vehicle.id:
                 vis = True
             else:
@@ -475,7 +487,7 @@ def main():
                 os.makedirs(vehicle_save_dir)
 
             # -----------------------------------create directory for saving data-------------------------------------
-            #TODO: create directories before using vehicle->Nonsemantic/Semantic->name->actual data
+            # TODO: create directories before using vehicle->Nonsemantic/Semantic->name->actual data
 
             cam_name = ["rgb_top", "rgb_back", "rgb_bev"]
             cam_save_dir = vehicle_save_dir + "/rgb"
@@ -498,19 +510,19 @@ def main():
             # camera listen()
             sensor_cam0.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam0, the_vis=vis:
-                recursive_listen(data, sensor_queue, "rgb_top", vehicle, args.town, Intersection_x_max,
+                recursive_listen(data, "rgb_top", vehicle, args.town, Intersection_x_max,
                                  Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
-                                 save_dir + "rgb_top", sensor, the_vis))
+                                 save_dir + "rgb_top", sensor, the_vis, sensor_queue))
             sensor_cam1.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam1, the_vis=vis:
-                recursive_listen(data, sensor_queue, "rgb_back", vehicle, args.town, Intersection_x_max,
+                recursive_listen(data, "rgb_back", vehicle, args.town, Intersection_x_max,
                                  Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
-                                 save_dir + "rgb_back", sensor, the_vis))
+                                 save_dir + "rgb_back", sensor, the_vis, sensor_queue))
             sensor_cam2.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam2, the_vis=vis:
-                recursive_listen(data, sensor_queue, "rgb_bev", vehicle, args.town, Intersection_x_max,
+                recursive_listen(data, "rgb_bev", vehicle, args.town, Intersection_x_max,
                                  Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
-                                 save_dir + "rgb_bev", sensor, the_vis))
+                                 save_dir + "rgb_bev", sensor, the_vis, sensor_queue))
 
             """
             sensor_cam0.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_top"))
@@ -539,7 +551,6 @@ def main():
                 if not os.path.exists(lidar_save_dir + "/intensity_" + view):
                     os.makedirs(lidar_save_dir + "/intensity_" + view)
 
-
             # lidar location & rotation
             lidar_spawn_point0 = carla.Transform(carla.Location(z=2))
 
@@ -551,88 +562,97 @@ def main():
             # lidar listen()
             lidar_0.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=lidar_save_dir, sensor=lidar_0, the_vis=vis:
-                recursive_listen(data, sensor_queue, "lidar_0", vehicle, args.town, Intersection_x_max,
+                recursive_listen(data, "lidar_0", vehicle, args.town, Intersection_x_max,
                                  Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
-                                 save_dir + "lidar_0", sensor, the_vis))
+                                 save_dir + "lidar_0", sensor, the_vis, sensor_queue))
 
-            #lidar_0.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_0"))
+            # lidar_0.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_0"))
 
             # lidar append sensor_list
             sensor_list.append(lidar_0)
 
             print('lidar all set')
 
-            # -----------------------------------semantic lidar for 3d mapping------------------------------------------
-            s_lidar_save_dir = vehicle_save_dir + "/Semantic"
+            # # -----------------------------------semantic lidar for 3d mapping------------------------------------------
+            # s_lidar_save_dir = vehicle_save_dir + "/Semantic"
+            #
+            # NUM_SENSORS = 5
+            # views = np.arange(NUM_SENSORS)
+            #
+            # for i in range(NUM_SENSORS):
+            #     print(i)
+            #     # -----------------------------------save raw data-------------------------------------
+            #     # only velocity need extra code, all others used in gen_points to create 3d scene
+            #     if not os.path.exists(s_lidar_save_dir + "/velocities_" + str(i)):
+            #         os.makedirs(s_lidar_save_dir + "/velocities_" + str(i))
+            #     if not os.path.exists(s_lidar_save_dir + "/labels_" + str(i)):
+            #         os.makedirs(s_lidar_save_dir + "/labels_" + str(i))
+            #     if not os.path.exists(s_lidar_save_dir + "/instances_" + str(i)):
+            #         os.makedirs(s_lidar_save_dir + "/instances_" + str(i))
+            #     if not os.path.exists(s_lidar_save_dir + "/velodyne_" + str(i)):
+            #         os.makedirs(s_lidar_save_dir + "/velodyne_" + str(i))
+            #     if not os.path.exists(s_lidar_save_dir + "/pose_" + str(i)):
+            #         os.makedirs(s_lidar_save_dir + "/pose_" + str(i))
+            #
+            #     # -----------------------------------spawn the semantic lidars-------------------------------------
+            #     if i == 0:  # Onboard sensor
+            #         offsets = [-0.5, 0.0, 1.8]
+            #     else:
+            #         offsets = np.random.uniform([-20, -20, 1], [20, 20, 5], [3, ])
+            #
+            #     s_lidar_transform = carla.Transform(carla.Location(x=offsets[0], y=offsets[1], z=offsets[2]))
+            #     s_lidar = spawn_lidar(world, s_lidar_bp, 64, 200000, 50, int(1 / settings.fixed_delta_seconds),
+            #                           s_lidar_transform, vehicle)
+            #     print('spawned')
+            #
+            #     s_lidars.append(s_lidar)
+            #
+            #     s_lidars[i].listen(
+            #         lambda data, view=views[i], vehicle=vehicle, frame=frame, save_dir=s_lidar_save_dir,
+            #                sensor=s_lidars[i], the_vis=vis:
+            #         semantic_lidar_callback(data, view, lidar_queue, vehicle, args.town, Intersection_x_max,
+            #                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world,
+            #                                 s_lidars, frame, save_dir, the_vis))
+            #     print('listening')
 
-            NUM_SENSORS = 5
-            views = np.arange(NUM_SENSORS)
+            # lidar_bp = generate_lidar_bp(world, 0.05)
+            # # # Location of lidar, fixed to vehicle
+            # lidar_transform = carla.Transform(carla.Location(x=offsets[0], y=offsets[1], z=offsets[2]))
+            # lidar = world.spawn_actor(lidar_bp, lidar_transform, attach_to=vehicle)
+            #
+            # # Add callback
+            # s_lidars.append(lidar)
+            # # s_lidars[i].listen(lambda data, view=views[i]: lidar_queue.put([data, view]))
+            #
+            # # TODO: implement semantic_lidar_callback() here in listen()
+            # s_lidars[i].listen(
+            #     lambda data, view=views[i], vehicle=vehicle, frame=frame, save_dir=s_lidar_save_dir,
+            #            sensor=s_lidars[i], the_vis=vis:
+            #     semantic_lidar_callback(data, view, lidar_queue, vehicle, args.town, Intersection_x_max,
+            #                             Intersection_x_min, Intersection_y_max, Intersection_y_min, world,
+            #                             s_lidars, frame, save_dir, the_vis))
 
-            for i in range(NUM_SENSORS):
-                print(i)
-                # -----------------------------------save raw data-------------------------------------
-                # only velocity need extra code, all others used in gen_points to create 3d scene
-                if not os.path.exists(s_lidar_save_dir + "/velocities_" + str(i)):
-                    os.makedirs(s_lidar_save_dir + "/velocities_" + str(i))
-                if not os.path.exists(s_lidar_save_dir + "/labels_" + str(i)):
-                    os.makedirs(s_lidar_save_dir + "/labels_" + str(i))
-                if not os.path.exists(s_lidar_save_dir + "/instances_" + str(i)):
-                    os.makedirs(s_lidar_save_dir + "/instances_" + str(i))
-                if not os.path.exists(s_lidar_save_dir + "/velodyne_" + str(i)):
-                    os.makedirs(s_lidar_save_dir + "/velodyne_" + str(i))
-                if not os.path.exists(s_lidar_save_dir + "/pose_" + str(i)):
-                    os.makedirs(s_lidar_save_dir + "/pose_" + str(i))
-
-                # -----------------------------------spawn the semantic lidars-------------------------------------
-                if i == 0:  # Onboard sensor
-                    offsets = [-0.5, 0.0, 1.8]
-                else:
-                    offsets = np.random.uniform([-20, -20, 1], [20, 20, 5], [3, ])
-
-                print('before')
-                lidar_bp = generate_lidar_bp(world, 0.05)
-                # # Location of lidar, fixed to vehicle
-                print('after')
-                lidar_transform = carla.Transform(carla.Location(x=offsets[0], y=offsets[1], z=offsets[2]))
-                print('transformed')
-                lidar = world.spawn_actor(lidar_bp, lidar_transform, attach_to=vehicle)
-                print('spawned')
-
-                # Add callback
-                s_lidars.append(lidar)
-                #s_lidars[i].listen(lambda data, view=views[i]: lidar_queue.put([data, view]))
-                print('appended')
-
-                # TODO: implement semantic_lidar_callback() here in listen()
-                s_lidars[i].listen(
-                    lambda data, view=views[i], vehicle=vehicle, frame=frame, save_dir=s_lidar_save_dir,
-                           sensor=s_lidars[i], the_vis=vis:
-                    semantic_lidar_callback(data, view, lidar_queue, vehicle, args.town, Intersection_x_max,
-                                            Intersection_x_min, Intersection_y_max, Intersection_y_min, world,
-                                            s_lidars, frame, save_dir, the_vis))
-                print('listening')
-
-        # window for dense point cloud
-        vis0 = o3d.visualization.Visualizer()
-        vis0.create_window(
-            window_name='Dense Segmented Scene',
-            width=IM_WIDTH * 2,
-            height=IM_HEIGHT * 2,
-            left=480,
-            top=270)
-        vis0.get_render_option().background_color = [0.0, 0.0, 0.0]
-        vis0.get_render_option().point_size = 3
-
-        # window for sparse point cloud
-        vis1 = o3d.visualization.Visualizer()
-        vis1.create_window(
-            window_name='Sparse Segmented Scene',
-            width=IM_WIDTH * 2,
-            height=IM_HEIGHT * 2,
-            left=480 + IM_WIDTH * 2,
-            top=270)
-        vis1.get_render_option().background_color = [0.0, 0.0, 0.0]
-        vis1.get_render_option().point_size = 3
+        # # window for dense point cloud
+        # vis0 = o3d.visualization.Visualizer()
+        # vis0.create_window(
+        #     window_name='Dense Segmented Scene',
+        #     width=IM_WIDTH * 2,
+        #     height=IM_HEIGHT * 2,
+        #     left=480,
+        #     top=270)
+        # vis0.get_render_option().background_color = [0.0, 0.0, 0.0]
+        # vis0.get_render_option().point_size = 3
+        #
+        # # window for sparse point cloud
+        # vis1 = o3d.visualization.Visualizer()
+        # vis1.create_window(
+        #     window_name='Sparse Segmented Scene',
+        #     width=IM_WIDTH * 2,
+        #     height=IM_HEIGHT * 2,
+        #     left=480 + IM_WIDTH * 2,
+        #     top=270)
+        # vis1.get_render_option().background_color = [0.0, 0.0, 0.0]
+        # vis1.get_render_option().point_size = 3
 
         # ----------------------------------------------Recording--------------------------------------------------
         # log_name = "trial2.log"
@@ -655,60 +675,67 @@ def main():
             sparse_point_list = o3d.geometry.PointCloud()
 
             try:
-                ego_pose = None
-                indicator = True
-
-                for i in range(len(s_lidars)):
-                    data, view = lidar_queue.get()
-                    ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose, indicator)
-                    point_list += point_list_2
-                    indicator = False
-
-                    # the sparse point cloud gets only the data from the first lidar
-                    if i == 0:
-                        sparse_point_list += point_list_2
-                    # sparse_point_list = point_list
-
-                if frame == 0:
-                    geometry0 = o3d.geometry.PointCloud(point_list)
-                    geometry1 = o3d.geometry.PointCloud(sparse_point_list)
-                    vis0.add_geometry(geometry0)
-                    vis1.add_geometry(geometry1)
-
-                geometry0.points = point_list.points
-                geometry0.colors = point_list.colors
-                vis0.update_geometry(geometry0)
-                for i in range(1):
-                    vis0.poll_events()
-                    vis0.update_renderer()
-                    time.sleep(0.005)
-
-                # get the image and scale and convert to uint8 type
-                o3d_screenshot_dense = vis0.capture_screen_float_buffer()
-                o3d_screenshot_dense = (255.0 * np.asarray(o3d_screenshot_dense)).astype(np.uint8)
-
-                geometry1.points = sparse_point_list.points
-                geometry1.colors = sparse_point_list.colors
-                vis1.update_geometry(geometry1)
-                for i in range(1):
-                    vis1.poll_events()
-                    vis1.update_renderer()
-                    time.sleep(0.005)
-
-                o3d_screenshot_sparse = vis1.capture_screen_float_buffer()
-                o3d_screenshot_sparse = (255.0 * np.asarray(o3d_screenshot_sparse)).astype(np.uint8)
-
-                canvas = np.concatenate((o3d_screenshot_dense, o3d_screenshot_sparse), axis=1)
-                # cv2.imshow("Semantic Lidar Dense/Sparse Comparison", canvas)
-                out1.write(canvas)
-
+                #     ego_pose = None
+                #     indicator = True
+                #
+                #     for i in range(len(s_lidars)):
+                #         data, view = lidar_queue.get()
+                #         ego_pose, point_list_2 = gen_points(data, world, s_lidars[view].id, vehicle.id, ego_pose, indicator)
+                #         point_list += point_list_2
+                #         indicator = False
+                #
+                #         # the sparse point cloud gets only the data from the first lidar
+                #         if i == 0:
+                #             sparse_point_list += point_list_2
+                #         # sparse_point_list = point_list
+                #
+                #     if frame == 0:
+                #         geometry0 = o3d.geometry.PointCloud(point_list)
+                #         geometry1 = o3d.geometry.PointCloud(sparse_point_list)
+                #         vis0.add_geometry(geometry0)
+                #         vis1.add_geometry(geometry1)
+                #
+                #     geometry0.points = point_list.points
+                #     geometry0.colors = point_list.colors
+                #     vis0.update_geometry(geometry0)
+                #     for i in range(1):
+                #         vis0.poll_events()
+                #         vis0.update_renderer()
+                #         time.sleep(0.005)
+                #
+                #     # get the image and scale and convert to uint8 type
+                #     o3d_screenshot_dense = vis0.capture_screen_float_buffer()
+                #     o3d_screenshot_dense = (255.0 * np.asarray(o3d_screenshot_dense)).astype(np.uint8)
+                #
+                #     geometry1.points = sparse_point_list.points
+                #     geometry1.colors = sparse_point_list.colors
+                #     vis1.update_geometry(geometry1)
+                #     for i in range(1):
+                #         vis1.poll_events()
+                #         vis1.update_renderer()
+                #         time.sleep(0.005)
+                #
+                #     o3d_screenshot_sparse = vis1.capture_screen_float_buffer()
+                #     o3d_screenshot_sparse = (255.0 * np.asarray(o3d_screenshot_sparse)).astype(np.uint8)
+                #
+                #     canvas = np.concatenate((o3d_screenshot_dense, o3d_screenshot_sparse), axis=1)
+                #     # cv2.imshow("Semantic Lidar Dense/Sparse Comparison", canvas)
+                #     out1.write(canvas)
+                #
                 rgbs = []
                 lidars = []
-                # print(sensor_queue.queue)
+                # print(sensor_queue.queue, Queue.qsize(sensor_queue))
 
-                for i in range(0, len(sensor_list)):
+
+                # IMPORTANT: sensor_queue is not storing all sensor data from a frame and then release them here;
+                # instead, the queue works as a temporary pathway from which the loop grabs each set of data immediately
+                # after it is put into the queue by recursive_callback
+                # if and only if the loop gets a valid grab will it proceed to the next iteration (i++)
+                for i in range(0, 4):
+                    # print(sensor_queue.queue)
+                    print(i)
                     s_frame, s_name, s_data = sensor_queue.get(True, 1.0)
-                    # print(s_frame, s_name)
+                    print(s_frame, s_name)
                     sensor_type = s_name.split('_')[0]
                     if sensor_type == "rgb":
                         rgbs.append(process_img(s_data))
@@ -732,12 +759,12 @@ def main():
         out1.release()
         # out2.release()
         world.apply_settings(original_settings)
-        for vehicle in vehicle_list:
-            vehicle.destroy()
         for sensor in sensor_list:
             sensor.destroy()
         for s_lidar in s_lidars:
             s_lidar.destroy()
+        for vehicle in vehicle_list:
+            vehicle.destroy()
         print("all done")
 
 
