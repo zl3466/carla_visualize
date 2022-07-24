@@ -315,7 +315,6 @@ def spawn_lidar(world, lidar_bp, channel, pps, l_range, freq, transform, upper_f
 def at_intersection(actor, index, x_max, x_min, y_max, y_min):
     sensor_x = actor.get_transform().location.x
     sensor_y = actor.get_transform().location.y
-    print(x_max[index] >= sensor_x >= x_min[index] and y_max[index] >= sensor_y >= y_min[index])
     return x_max[index] >= sensor_x >= x_min[index] and y_max[index] >= sensor_y >= y_min[index]
     # for get data in all intersactions
     """
