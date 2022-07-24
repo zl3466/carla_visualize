@@ -21,6 +21,8 @@ import logging
 import argparse
 import open3d as o3d
 
+global frame
+frame=0
 IM_WIDTH = 256
 IM_HEIGHT = 256
 LABEL_COLORS = np.array([
@@ -101,7 +103,8 @@ def process_img(image):
 
 
 # use to save raw data
-def save_raw_data(point_cloud, world, lidar_id, vehicle_id, frame, save_dir, view=0, image=None):
+def save_raw_data(point_cloud, world, lidar_id, vehicle_id, save_dir, view=0, image=None):
+    global frame
     # check if the incoming lidar is semantic or non-semantic
     actor_list = world.get_actors()
     if lidar_id is not None:
@@ -113,7 +116,7 @@ def save_raw_data(point_cloud, world, lidar_id, vehicle_id, frame, save_dir, vie
         if sensor_type == "rgb":
             # TODO save camera data
             # new added save rgb data as image
-            #image.save_to_disk(save_dir + "/"+str(frame) + ".jpg")
+            image.save_to_disk(save_dir + "/"+str(frame) + ".jpg")
             return
         elif sensor_type == "lidar":
             # non-semantic lidar
@@ -259,7 +262,8 @@ def process_lidar(data):
 # TODO: save camera and non-semantic lidar data during listen callback
 #  'the_sensor' is the sensor object, the id of which substitutes the original 'sensor_list[sensor_index].id' for save_raw_data()
 def recursive_listen(sensor_data, sensor_name, vehicle, index, x_max, x_min, y_max, y_min, world,
-                     frame, save_dir, the_sensor, vis, sensor_queue):
+                     save_dir, the_sensor, vis, sensor_queue):
+    global frame
     if vis:
         sensor_queue.put((sensor_data.frame, sensor_name, sensor_data))
     sensor_type = sensor_name.split('_')[0]
@@ -269,18 +273,18 @@ def recursive_listen(sensor_data, sensor_name, vehicle, index, x_max, x_min, y_m
         #  we use this method to tell whether the incoming sensor is a camera or lidar in save_raw_data()
         print('saving data for vehicle ', vehicle.id)
         if sensor_type == "rgb":
-            save_raw_data(None, world, None, None, frame, save_dir, view=sensor_name, image=sensor_data)
+            save_raw_data(None, world, None, None, save_dir, view=sensor_name, image=sensor_data)
         elif sensor_type == "lidar":
-            save_raw_data(sensor_data, world, the_sensor.id, vehicle.id, frame, save_dir, view=sensor_name)
+            save_raw_data(sensor_data, world, the_sensor.id, vehicle.id, save_dir, view=sensor_name,image=None)
 
 
 # TODO: save semantic lidar data during listen callback
-def semantic_lidar_callback(data, view, vehicle, index, x_max, x_min, y_max, y_min, world, s_lidars, frame,
+def semantic_lidar_callback(data, view, vehicle, index, x_max, x_min, y_max, y_min, world, s_lidars,
                             s_lidar_save_dir, vis, lidar_queue):
     if vis:
         lidar_queue.put([data, view])
     if at_intersection(vehicle, index, x_max, x_min, y_max, y_min):
-        save_raw_data(data, world, s_lidars[view].id, vehicle.id, frame, s_lidar_save_dir, view=view, image=None)
+        save_raw_data(data, world, s_lidars[view].id, vehicle.id, s_lidar_save_dir, view=view, image=None)
 
 
 def spawn_rgb_cam(world, cam_bp, size_x, size_y, fov, transform, vehicle=None):
@@ -315,15 +319,13 @@ def spawn_lidar(world, lidar_bp, channel, pps, l_range, freq, transform, upper_f
 def at_intersection(actor, index, x_max, x_min, y_max, y_min):
     sensor_x = actor.get_transform().location.x
     sensor_y = actor.get_transform().location.y
-    return x_max[index] >= sensor_x >= x_min[index] and y_max[index] >= sensor_y >= y_min[index]
-    """
+    #return x_max[index] >= sensor_x >= x_min[index] and y_max[index] >= sensor_y >= y_min[index]
     # for get data in all intersactions
     for index in range(0,len(x_max)):
         if (x_max[index] >= sensor_x >= x_min[index]):
             if(y_max[index] >= sensor_y >= y_min[index]):
                 return True
     return False
-    """
 
 
 def main():
@@ -392,7 +394,6 @@ def main():
         s_lidars = []
         sensor_queue = Queue()
         lidar_queue = Queue()
-        frame = 0
 
         original_settings = world.get_settings()
         settings = world.get_settings()
@@ -518,20 +519,21 @@ def main():
 
             # TODO: implement new recursive_listen() here; fill the extra attributes
             # camera listen()
+            global frame
             sensor_cam0.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam0, the_vis=vis:
                 recursive_listen(data, "rgb_top", vehicle, args.town, Intersection_x_max,
-                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
+                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world,
                                  save_dir + "/rgb_top", sensor, the_vis, sensor_queue))
             sensor_cam1.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam1, the_vis=vis:
                 recursive_listen(data, "rgb_back", vehicle, args.town, Intersection_x_max,
-                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
+                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world, 
                                  save_dir + "/rgb_back", sensor, the_vis, sensor_queue))
             sensor_cam2.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam2, the_vis=vis:
                 recursive_listen(data, "rgb_bev", vehicle, args.town, Intersection_x_max,
-                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
+                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world, 
                                  save_dir + "/rgb_bev", sensor, the_vis, sensor_queue))
 
             """
@@ -573,7 +575,7 @@ def main():
             lidar_0.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=lidar_save_dir, sensor=lidar_0, the_vis=vis:
                 recursive_listen(data, "lidar_0", vehicle, args.town, Intersection_x_max,
-                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
+                                 Intersection_x_min, Intersection_y_max, Intersection_y_min, world,
                                  save_dir, sensor, the_vis, sensor_queue))
 
             # lidar_0.listen(lambda data: recursive_listen(data, sensor_queue, "lidar_0"))
@@ -621,7 +623,7 @@ def main():
                            sensor=s_lidars[i], the_vis=vis:
                     semantic_lidar_callback(data, view, vehicle, args.town, Intersection_x_max,
                                             Intersection_x_min, Intersection_y_max, Intersection_y_min, world,
-                                            s_lidars, frame, save_dir, the_vis, lidar_queue))
+                                            s_lidars, save_dir, the_vis, lidar_queue))
 
             vehicle_count += 1
 
