@@ -113,7 +113,7 @@ def save_raw_data(point_cloud, world, lidar_id, vehicle_id, frame, save_dir, vie
         if sensor_type == "rgb":
             # TODO save camera data
             # new added save rgb data as image
-            # image.save_to_disk(save_dir + str(frame) + ".jpg")
+            #image.save_to_disk(save_dir + "/"+str(frame) + ".jpg")
             return
         elif sensor_type == "lidar":
             # non-semantic lidar
@@ -267,7 +267,7 @@ def recursive_listen(sensor_data, sensor_name, vehicle, index, x_max, x_min, y_m
         # TODO: not sure if we need to distinguish between camera and lidar here
         #  if we do, this is the way, just FYI.
         #  we use this method to tell whether the incoming sensor is a camera or lidar in save_raw_data()
-        print('sasving data for vehicle ', vehicle.id)
+        print('saving data for vehicle ', vehicle.id)
         if sensor_type == "rgb":
             save_raw_data(None, world, None, None, frame, save_dir, view=sensor_name, image=sensor_data)
         elif sensor_type == "lidar":
@@ -315,7 +315,16 @@ def spawn_lidar(world, lidar_bp, channel, pps, l_range, freq, transform, upper_f
 def at_intersection(actor, index, x_max, x_min, y_max, y_min):
     sensor_x = actor.get_transform().location.x
     sensor_y = actor.get_transform().location.y
+    print(x_max[index] >= sensor_x >= x_min[index] and y_max[index] >= sensor_y >= y_min[index])
     return x_max[index] >= sensor_x >= x_min[index] and y_max[index] >= sensor_y >= y_min[index]
+    # for get data in all intersactions
+    """
+    for index in range(0,len(x_max)):
+        if (x_max[index] >= sensor_x >= x_min[index]):
+            if(y_max[index] >= sensor_y >= y_min[index]):
+                return True
+    return False
+    """
 
 
 def main():
@@ -363,7 +372,7 @@ def main():
     argparser.add_argument(
         '--save-dir',
         type=str,
-        default="/home/zl3466/Data",
+        default="/home/allenzj/Data",
         help='save directory for raw data')
     argparser.add_argument(
         '-i', '--target-vehicle',
@@ -514,17 +523,17 @@ def main():
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam0, the_vis=vis:
                 recursive_listen(data, "rgb_top", vehicle, args.town, Intersection_x_max,
                                  Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
-                                 save_dir + "rgb_top", sensor, the_vis, sensor_queue))
+                                 save_dir + "/rgb_top", sensor, the_vis, sensor_queue))
             sensor_cam1.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam1, the_vis=vis:
                 recursive_listen(data, "rgb_back", vehicle, args.town, Intersection_x_max,
                                  Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
-                                 save_dir + "rgb_back", sensor, the_vis, sensor_queue))
+                                 save_dir + "/rgb_back", sensor, the_vis, sensor_queue))
             sensor_cam2.listen(
                 lambda data, vehicle=vehicle, frame=frame, save_dir=cam_save_dir, sensor=sensor_cam2, the_vis=vis:
                 recursive_listen(data, "rgb_bev", vehicle, args.town, Intersection_x_max,
                                  Intersection_x_min, Intersection_y_max, Intersection_y_min, world, frame,
-                                 save_dir + "rgb_bev", sensor, the_vis, sensor_queue))
+                                 save_dir + "/rgb_bev", sensor, the_vis, sensor_queue))
 
             """
             sensor_cam0.listen(lambda data: recursive_listen(data, sensor_queue, "rgb_top"))
