@@ -316,8 +316,8 @@ def at_intersection(actor, index, x_max, x_min, y_max, y_min):
     sensor_x = actor.get_transform().location.x
     sensor_y = actor.get_transform().location.y
     return x_max[index] >= sensor_x >= x_min[index] and y_max[index] >= sensor_y >= y_min[index]
-    # for get data in all intersactions
     """
+    # for get data in all intersactions
     for index in range(0,len(x_max)):
         if (x_max[index] >= sensor_x >= x_min[index]):
             if(y_max[index] >= sensor_y >= y_min[index]):
